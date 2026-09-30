@@ -302,7 +302,7 @@ fun HomeScreen(onOpenDoc: (String, Int, Boolean) -> Unit, onOpenSettings: () -> 
                         )
                         DrawerRow(
                             icon = Icons.Default.Computer,
-                            title = "Web 终端服务",
+                            title = "网页翻译台",
                             count = null,
                             selected = false,
                             onClick = {

@@ -27,7 +27,7 @@
         </activity>
 
         <service
-            android:name=".server.WebTerminalService"
+            android:name=".server.WebServerService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
     </application>

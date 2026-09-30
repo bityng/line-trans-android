@@ -13,12 +13,13 @@ import androidx.core.app.NotificationCompat
 import com.linetrans.app.R
 import com.linetrans.app.data.SettingsRepository
 
-class WebTerminalService : Service() {
+/** 局域网网页翻译台的前台服务：监听端口，把网页界面与 API 提供给局域网设备。 */
+class WebServerService : Service() {
 
-    private var server: WebTerminalServer? = null
+    private var server: WebServer? = null
 
     companion object {
-        private const val CHANNEL_ID = "web_terminal_channel"
+        private const val CHANNEL_ID = "web_server_channel"
         private const val NOTIF_ID = 1001
 
         @Volatile
@@ -27,7 +28,7 @@ class WebTerminalService : Service() {
         val isRunning: Boolean get() = running
 
         fun start(context: Context) {
-            val intent = Intent(context, WebTerminalService::class.java)
+            val intent = Intent(context, WebServerService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {
@@ -36,7 +37,7 @@ class WebTerminalService : Service() {
         }
 
         fun stop(context: Context) {
-            context.stopService(Intent(context, WebTerminalService::class.java))
+            context.stopService(Intent(context, WebServerService::class.java))
         }
     }
 
@@ -48,7 +49,7 @@ class WebTerminalService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForegroundEx()
         val port = SettingsRepository.settings.webServerPort
-        val s = WebTerminalServer(applicationContext, port)
+        val s = WebServer(applicationContext, port)
         s.startServer()
         server = s
         running = true
@@ -69,7 +70,7 @@ class WebTerminalService : Service() {
         val text = "网页翻译台已在局域网运行，端口 " + port
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("Web 终端服务")
+            .setContentTitle("网页翻译台")
             .setContentText(text)
             .setOngoing(true)
             .build()
@@ -78,7 +79,7 @@ class WebTerminalService : Service() {
     private fun createChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = getSystemService(NotificationManager::class.java)
-            val channel = NotificationChannel(CHANNEL_ID, "Web 终端服务", NotificationManager.IMPORTANCE_LOW)
+            val channel = NotificationChannel(CHANNEL_ID, "网页翻译台服务", NotificationManager.IMPORTANCE_LOW)
             manager?.createNotificationChannel(channel)
         }
     }

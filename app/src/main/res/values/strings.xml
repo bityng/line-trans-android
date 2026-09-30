@@ -16,8 +16,6 @@
     <string name="lock">锁定分割线</string>
     <string name="unlock">解锁分割线</string>
     <string name="translation_done">翻译完毕</string>
-    <string name="web_terminal">Web终端服务</string>
-    <string name="web_terminal_desc">为局域网内设备提供可访问的 Web 终端</string>
     <string name="add_provider">添加API提供商</string>
     <string name="usage_stats">用量与费用</string>
 </resources>

@@ -29,11 +29,10 @@ LineTrans 安卓客户端：Kotlin + Jetpack Compose 的逐行 / 逐句对照翻
 | 局域网网页台后端 | `server/WebApi.kt`（与 line-trans-web 的 API 必须一致） |
 | 网页界面 | `app/src/main/assets/web/`（与 line-trans-web 的 `public/` 必须一致） |
 
-## 三条不能踩的坑
+## 两条不能踩的坑
 
 1. `SettingsRepository.settings` 用 `neverEqualPolicy()`，改了别动，否则设置界面不刷新。
 2. `Modifier.weight()` 不能传 0，滑杆/分栏要 clamp。
-3. 覆盖 `NanoWSD` 时只能覆盖 `serveHttp()`，覆盖 `serve()` 会让 WebSocket 握手失效。
 
 ## 构建
 

@@ -1207,10 +1207,10 @@ private fun androidx.compose.foundation.lazy.LazyListScope.advancedTab(context: 
     item {
         SectionCard(
             title = "局域网 Web 服务",
-            subtitle = "浏览器继续翻译（/），也可用 Shell 终端（/terminal）",
+            subtitle = "同一局域网内的设备用浏览器打开即可继续翻译",
             icon = Icons.Default.Storage
         ) {
-            WebTerminalSettings(context, notify)
+            WebServerSettings(context, notify)
         }
     }
 }
@@ -1290,11 +1290,11 @@ private fun NetworkSettings(context: Context, notify: Notify) {
 }
 
 @Composable
-private fun WebTerminalSettings(context: Context, notify: Notify) {
+private fun WebServerSettings(context: Context, notify: Notify) {
     val settings = SettingsRepository.settings
     var portText by remember { mutableStateOf(settings.webServerPort.toString()) }
     var tokenText by remember { mutableStateOf(settings.webServerToken) }
-    val running = com.linetrans.app.server.WebTerminalService.isRunning
+    val running = com.linetrans.app.server.WebServerService.isRunning
 
     SwitchRow(
         title = "启用局域网 Web 服务",
@@ -1303,12 +1303,12 @@ private fun WebTerminalSettings(context: Context, notify: Notify) {
         onCheckedChange = { checked ->
             if (checked) {
                 SettingsRepository.update { it.copy(webServerEnabled = true) }
-                com.linetrans.app.server.WebTerminalService.start(context)
-                notify("Web 终端服务已开启")
+                com.linetrans.app.server.WebServerService.start(context)
+                notify("局域网 Web 服务已开启")
             } else {
-                com.linetrans.app.server.WebTerminalService.stop(context)
+                com.linetrans.app.server.WebServerService.stop(context)
                 SettingsRepository.update { it.copy(webServerEnabled = false) }
-                notify("Web 终端服务已关闭")
+                notify("局域网 Web 服务已关闭")
             }
         }
     )
@@ -1331,9 +1331,9 @@ private fun WebTerminalSettings(context: Context, notify: Notify) {
             val p = (portText.toIntOrNull() ?: 8080).coerceIn(1024, 65535)
             portText = p.toString()
             SettingsRepository.update { it.copy(webServerPort = p) }
-            if (com.linetrans.app.server.WebTerminalService.isRunning) {
-                com.linetrans.app.server.WebTerminalService.stop(context)
-                com.linetrans.app.server.WebTerminalService.start(context)
+            if (com.linetrans.app.server.WebServerService.isRunning) {
+                com.linetrans.app.server.WebServerService.stop(context)
+                com.linetrans.app.server.WebServerService.start(context)
             }
             notify("端口已设为 $p")
         }) { Text("应用") }
@@ -1374,7 +1374,7 @@ private fun WebTerminalSettings(context: Context, notify: Notify) {
             }
         }
         Text(
-            "网页翻译台（推荐）：" + base + "/　·　Shell 终端：" + base + "/terminal",
+            "网页翻译台：" + base + "/",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

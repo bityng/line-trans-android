@@ -80,7 +80,6 @@
 - `http://<手机IP>:<端口>/` —— **网页翻译台**：同一局域网的电脑 / 平板浏览器直接继续翻译：
   左侧文档列表、右侧逐句「原文 + 译文」编辑，支持自动保存、单句 AI 翻译、批量翻译剩余、
   收藏与筛选、逐行 / 逐句切换、导出对照 TXT / Markdown / CSV / JSON。
-- `http://<手机IP>:<端口>/terminal` —— 可选的 Shell 终端（xterm.js，运行在手机本地 shell，非 root）。
 - 支持**访问令牌**（填写后需带 `?token=xxx`）、自定义端口、应用启动后自动开启。
 - 网页界面与 API 与独立服务端 [line-trans-web](https://github.com/bityng/line-trans-web) 完全一致，
   也可以把 Web 服务端单独跑在电脑上使用。
@@ -90,7 +89,7 @@
 - Kotlin 1.9.24 / AGP 8.5.2 / Gradle 8.7（已内置 wrapper）
 - Jetpack Compose (Material3) + Navigation Compose
 - OkHttp + Gson（AI API 调用）
-- NanoHTTPD + NanoWSD（局域网 Web / WebSocket 终端服务器）
+- NanoHTTPD（局域网网页翻译台服务器）
 - Android Storage Access Framework（文件夹选择与读写）
 
 minSdk 26，targetSdk 34。
@@ -117,13 +116,12 @@ LineTrans/
 │   ├── build.gradle.kts
 │   └── src/main/
 │       ├── assets/web/                     # 网页翻译台（与 line-trans-web 的 public/ 一致）
-│       ├── assets/web_terminal.html        # 可选 Shell 终端页面
 │       ├── java/com/linetrans/app/
 │       │   ├── MainActivity.kt
 │       │   ├── ai/TranslationService.kt    # AI 翻译与提示词构建
 │       │   ├── data/                       # 设置、文档、存储、导出、备份
 │       │   ├── model/Models.kt             # 数据模型与提示词模板
-│       │   ├── server/                     # 局域网服务：网页翻译台 API + Shell 终端
+│       │   ├── server/                     # 局域网网页翻译台：静态资源 + API
 │       │   ├── ui/                         # 主界面、翻译界面
 │       │   │   └── settings/               # 设置页（分类 Tab）
 │       │   └── util/                       # 文本解析、费用计算、网络
@@ -138,7 +136,6 @@ LineTrans/
 
 - 文档数据保存在应用私有目录（`files/docs/*.json`），写入经过防抖并放在 IO 线程。
 - 费用按输入的每百万 token 价格估算，未配置价格时只统计 token。
-- Web 终端运行在应用的本地 shell 中（非 root），仅具备应用进程的权限。
 
 ## 许可
 

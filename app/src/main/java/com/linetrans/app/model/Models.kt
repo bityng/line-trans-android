@@ -203,7 +203,7 @@ data class AppSettings(
     var dailyGoal: Int = 0,
     var defaultExportFormat: ExportFormat = ExportFormat.TXT_BILINGUAL,
 
-    // —— Web 终端 ——
+    // —— 局域网 Web 服务 ——
     var webServerPort: Int = 8080,
     var webServerEnabled: Boolean = false,
     var webServerToken: String = "",
