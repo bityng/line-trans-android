@@ -3,8 +3,11 @@ package com.linetrans.app.server
 import android.os.Handler
 import android.os.Looper
 import com.google.gson.Gson
+import com.google.gson.JsonNull
+import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.linetrans.app.BuildConfig
+import com.linetrans.app.ai.LocalDictionary
 import com.linetrans.app.ai.TranslationService
 import com.linetrans.app.data.DocRepository
 import com.linetrans.app.data.ExportManager
@@ -103,6 +106,8 @@ class WebApi(private val context: android.content.Context) {
             path == "api/doc" && isPost -> patchDoc(body(session))
             path == "api/ai" && isPost -> runAi(body(session))
             path == "api/export" -> export(param(session, "id"), param(session, "format"))
+            path == "api/lookup" -> lookup(session)
+            path == "api/dict" -> dict()
             else -> NanoHTTPD.newFixedLengthResponse(
                 NanoHTTPD.Response.Status.NOT_FOUND,
                 "application/json; charset=utf-8",
@@ -296,6 +301,110 @@ class WebApi(private val context: android.content.Context) {
         ).apply {
             addHeader("Content-Disposition", "attachment; filename=\"" + java.net.URLEncoder.encode(name, "UTF-8") + "\"")
         }
+    }
+
+    // ---------- 划词查义（与网页端 /api/lookup、/api/dict 同契约） ----------
+
+    /**
+     * 划词查义：本地离线词库优先（direct → lemma → variant），未命中时可用 AI 兜底。
+     * 参数与返回结构与网页端 line-trans-web 的 `/api/lookup` 完全一致。
+     */
+    private fun lookup(session: NanoHTTPD.IHTTPSession): NanoHTTPD.Response {
+        val word = LocalDictionary.normalize(param(session, "word") ?: "")
+        // 空词只回 ok/error：带空 word 会让网页端误判成「不是这次查的词」而丢弃回包
+        if (word.isEmpty()) return json(errorBody("word 不能为空"))
+        val query = if (word.length > 64) word.substring(0, 64) else word   // 超长词直接截断
+
+        val langParam = param(session, "lang")
+        val lang = when {
+            langParam == "zh" || langParam == "both" || langParam == "en" -> langParam
+            langParam == null -> definitionLanguage()
+            else -> "zh"                                                     // 非法值按 zh
+        }
+
+        // 首次请求时懒加载，加载中的请求等加载完成再返回（与网页端 loadDict() 一致）
+        runCatching { runBlocking { LocalDictionary.ensureLoaded(context) } }
+
+        LocalDictionary.lookupDetail(query)?.let { hit ->
+            val source = if (LocalDictionary.isImportedWord(hit.entry.word)) "import" else "local"
+            return json(JsonObject().apply {
+                addProperty("ok", true)
+                addProperty("word", query)
+                addProperty("found", true)
+                addProperty("matched", hit.matched)
+                addProperty("via", hit.via)
+                addProperty("phonetic", hit.entry.phonetic)
+                addProperty("meaning", hit.entry.meaning)
+                addProperty("source", source)
+            })
+        }
+
+        // 网页端未传 ai 时默认不兜底（对端 config.lookup.aiFallback 默认 false）
+        val allowAi = param(session, "ai") == "1"
+        if (allowAi && SettingsRepository.settings.activeProvider != null) {
+            // 兜底失败不影响本地查询结果（与网页端 try/catch 行为一致）
+            val text = runCatching { aiLookup(query, lang) }.getOrNull()
+            if (!text.isNullOrBlank()) {
+                return json(JsonObject().apply {
+                    addProperty("ok", true)
+                    addProperty("word", query)
+                    addProperty("found", true)
+                    addProperty("matched", query)
+                    addProperty("via", "ai")
+                    addProperty("phonetic", "")
+                    addProperty("meaning", text)
+                    addProperty("source", "ai")
+                })
+            }
+        }
+
+        return json(JsonObject().apply {
+            addProperty("ok", true)
+            addProperty("word", query)
+            addProperty("found", false)
+            add("matched", JsonNull.INSTANCE)
+            add("via", JsonNull.INSTANCE)
+            addProperty("source", "none")
+        })
+    }
+
+    /** 词库状态：entries / lemma / imported 都取自真实加载结果，不写死。 */
+    private fun dict(): NanoHTTPD.Response {
+        runCatching { runBlocking { LocalDictionary.ensureLoaded(context) } }
+        return json(JsonObject().apply {
+            addProperty("ok", true)
+            addProperty("ready", LocalDictionary.dictReady)
+            addProperty("entries", LocalDictionary.entries)
+            addProperty("lemma", LocalDictionary.lemmaCount)
+            addProperty("imported", LocalDictionary.imported)
+            if (LocalDictionary.dictError.isNotEmpty()) addProperty("error", LocalDictionary.dictError)
+        })
+    }
+
+    /** AI 兜底释义：提示词与网页端 aiLookup 一致；不可用时返回 null。 */
+    private fun aiLookup(word: String, lang: String): String? {
+        val settings = SettingsRepository.settings
+        if (settings.activeProvider == null) return null
+        val rule = when (lang) {
+            "en" -> "用简明英文给出释义。"
+            "both" -> "先给出中文释义，再换行给出对应的英文释义。"
+            else -> "给出简明中文释义，并标注词性（如 n. / v. / adj.）。"
+        }
+        val system = "你是英汉词典。用户会给你一个英语单词，请" + rule +
+            "只输出释义本身：不要例句，不要解释，不要重复单词，不要客套话。"
+        val text = runBlocking { service.rawChat(settings, system, word) }.trim()
+        return text.ifBlank { null }
+    }
+
+    /** 释义语言：非法值按 zh（对应网页端 config.definitionLanguage 的处理）。 */
+    private fun definitionLanguage(): String = when (SettingsRepository.settings.definitionLanguage) {
+        "zh", "both", "en" -> SettingsRepository.settings.definitionLanguage
+        else -> "zh"
+    }
+
+    private fun errorBody(message: String): JsonObject = JsonObject().apply {
+        addProperty("ok", false)
+        addProperty("error", message)
     }
 
     // ---------- 工具 ----------

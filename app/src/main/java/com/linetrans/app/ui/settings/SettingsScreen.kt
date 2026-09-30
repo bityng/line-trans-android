@@ -1424,8 +1424,10 @@ private fun androidx.compose.foundation.lazy.LazyListScope.aboutTab(context: Con
         }
     }
     item {
-        SectionCard(title = "最近更新", subtitle = "v1.8.0", icon = Icons.Default.AutoAwesome) {
+        SectionCard(title = "最近更新", subtitle = "v1.8.1", icon = Icons.Default.AutoAwesome) {
             listOf(
+                "内置网页台补齐查词接口：局域网浏览器里也能点词查义了",
+                "移除网页台页脚的 Shell 终端死链",
                 "网页台新增划词查义：点词即出释义，复用内置离线词库，不联网也能查",
                 "修复词形还原整列失效：可用词形映射从 0 恢复到 101909 条",
                 "移除网页 shell 终端，局域网服务专注网页翻译台",
