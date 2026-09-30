@@ -114,24 +114,56 @@ const rows = (await readEntries())
 
 fs.mkdirSync(outDir, { recursive: true });
 const coreLines = [];
+const coreWords = new Set();
 for (const row of rows) {
   const meaning = cleanMeaning(row.translation);
   if (!meaning) continue;
-  coreLines.push([row.word.toLowerCase(), row.phonetic, meaning].join('\t'));
+  const word = row.word.toLowerCase();
+  coreLines.push([word, row.phonetic, meaning].join('\t'));
+  coreWords.add(word);
 }
 fs.writeFileSync(path.join(outDir, 'core.tsv'), coreLines.join('\n') + '\n', 'utf8');
 console.log('core.tsv 词条数：' + coreLines.length +
   ' 大小：' + (fs.statSync(path.join(outDir, 'core.tsv')).size / 1048576).toFixed(1) + ' MB');
 
-const lemmaLines = [];
+/*
+ * 词形还原表。
+ *
+ * lemma.en.txt 的真实格式是「原形/词频 -> 变形1,变形2,...」（该文件头注明共 84487 个 lemma 组），
+ * 例如：run/44715 -> running,ran,runs。它给的是「原形 → 变形」，而查词需要的是反过来的
+ * 「变形 → 原形」，所以这里必须整表反转，不能只按空白切两列。
+ *
+ * 历史 bug：旧实现写的是 parts[0] / parts[1]，于是 form='run/44715'、base='->'，
+ * 产出的 84487 行第二列恒为 "->"，词形还原整列作废（ran 查不到 run）。
+ *
+ * 一个变形可能同时挂在多个原形下（如 better 同时属于 well/156075 与 good/128437），取舍规则：
+ *   1) 优先取 core.tsv 里查得到的原形 —— 否则这条映射永远查不到词条，等于废数据；
+ *   2) 同一优先级下保留先出现的那个（文件按词频降序排列，即更常用的原形优先）。
+ */
+const lemmaMap = new Map();
+let lemmaConflict = 0;
 for (const line of fs.readFileSync(lemmaPath, 'utf8').split(/\r?\n/)) {
-  if (!line || line.startsWith(';') || line.startsWith('#')) continue;
-  const parts = line.trim().split(/\s+/);
-  if (parts.length < 2) continue;
-  const form = parts[0].toLowerCase();
-  const base = parts[1].toLowerCase();
-  if (form === base) continue;
-  lemmaLines.push(form + '\t' + base);
+  if (!line.trim() || line.startsWith(';') || line.startsWith('#')) continue;
+  const arrow = line.indexOf('->');
+  if (arrow < 0) continue;
+  const head = line.slice(0, arrow).trim();
+  // 大多数行是「原形/词频 -> 变形表」，也有约 2.2 万行只写「原形 -> 变形表」，两种都要认
+  const slash = head.lastIndexOf('/');
+  const base = (slash > 0 ? head.slice(0, slash) : head).trim().toLowerCase();
+  if (!base) continue;
+  for (const raw of line.slice(arrow + 2).split(',')) {
+    const form = raw.trim().toLowerCase();
+    if (!form || form === base) continue;
+    const prev = lemmaMap.get(form);
+    if (prev === undefined) { lemmaMap.set(form, base); continue; }
+    if (prev === base) continue;
+    lemmaConflict++;
+    if (!coreWords.has(prev) && coreWords.has(base)) lemmaMap.set(form, base);
+  }
 }
+const lemmaLines = [];
+for (const [form, base] of lemmaMap) lemmaLines.push(form + '\t' + base);
 fs.writeFileSync(path.join(outDir, 'lemma.tsv'), lemmaLines.join('\n') + '\n', 'utf8');
-console.log('lemma.tsv 条数：' + lemmaLines.length);
+console.log('lemma.tsv 条数：' + lemmaLines.length +
+  ' 大小：' + (fs.statSync(path.join(outDir, 'lemma.tsv')).size / 1048576).toFixed(1) + ' MB' +
+  '（多原形冲突 ' + lemmaConflict + ' 处，按「core 命中优先、词频次之」取舍）');
