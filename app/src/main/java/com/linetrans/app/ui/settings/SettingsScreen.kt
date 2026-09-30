@@ -1424,8 +1424,11 @@ private fun androidx.compose.foundation.lazy.LazyListScope.aboutTab(context: Con
         }
     }
     item {
-        SectionCard(title = "最近更新", subtitle = "v1.7.2", icon = Icons.Default.AutoAwesome) {
+        SectionCard(title = "最近更新", subtitle = "v1.8.0", icon = Icons.Default.AutoAwesome) {
             listOf(
+                "网页台新增划词查义：点词即出释义，复用内置离线词库，不联网也能查",
+                "修复词形还原整列失效：可用词形映射从 0 恢复到 101909 条",
+                "移除网页 shell 终端，局域网服务专注网页翻译台",
                 "项目改用 AGPL-3.0 许可，并在「关于」里保留源码入口",
                 "工程目录整理为「安卓端 / 网页端」，新增面向后续开发的《项目说明与开发指南》",
                 "修复长文字撑破布局：文件夹名/句子序号过长时不再把按钮挤出卡片（改为自动换行与省略号）",
