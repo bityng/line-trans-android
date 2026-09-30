@@ -142,4 +142,8 @@ LineTrans/
 
 ## 许可
 
-本项目使用 [MIT License](LICENSE) 开源。
+本项目使用 **GNU Affero General Public License v3.0（AGPL-3.0-or-later）** 开源，完整条款见 [LICENSE](LICENSE)。
+
+> AGPL 对**网络服务**有额外要求：把本项目（或它的修改版）部署成网络服务供他人使用时，
+> 必须向使用者提供对应源码。网页翻译台与安卓端的「关于」里都已保留仓库入口。
+> 内置离线词典数据来自 [ECDICT](https://github.com/skywind3000/ECDICT)（MIT），其数据部分仍遵循原许可。

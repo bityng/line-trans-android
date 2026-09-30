@@ -1424,8 +1424,10 @@ private fun androidx.compose.foundation.lazy.LazyListScope.aboutTab(context: Con
         }
     }
     item {
-        SectionCard(title = "最近更新", subtitle = "v1.7.1", icon = Icons.Default.AutoAwesome) {
+        SectionCard(title = "最近更新", subtitle = "v1.7.2", icon = Icons.Default.AutoAwesome) {
             listOf(
+                "项目改用 AGPL-3.0 许可，并在「关于」里保留源码入口",
+                "工程目录整理为「安卓端 / 网页端」，新增面向后续开发的《项目说明与开发指南》",
                 "修复长文字撑破布局：文件夹名/句子序号过长时不再把按钮挤出卡片（改为自动换行与省略号）",
                 "查看模式重做：对照/仅原文/仅译文切换，底部翻页与朗读/复制按钮，切分方式只读展示",
                 "内置网页台左上角改用应用图标",
@@ -1461,9 +1463,11 @@ private fun androidx.compose.foundation.lazy.LazyListScope.aboutTab(context: Con
         }
     }
     item {
-        SectionCard(title = "开源许可", subtitle = "MIT License", icon = Icons.Default.Check) {
+        SectionCard(title = "开源许可", subtitle = "AGPL-3.0-or-later", icon = Icons.Default.Check) {
             Text(
-                "本项目基于 MIT 许可开源，可自由使用与修改。",
+                "本项目按 GNU Affero GPL v3.0 开源。AGPL 对网络服务有额外要求：" +
+                    "把本项目或其修改版部署成网络服务供他人使用时，需要向使用者提供对应源码，" +
+                    "所以上面的两个仓库入口请保留。",
                 style = MaterialTheme.typography.bodyMedium
             )
         }
