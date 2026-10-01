@@ -192,6 +192,12 @@ data class AppSettings(
     var swipeToSwitch: Boolean = true,
     var autoSaveMs: Int = 700,
 
+    // —— 翻译界面分割线（原文/译文分栏）——
+    /** 分割线是否锁定；锁定后滑杆禁用，避免误拖。 */
+    var dividerLocked: Boolean = false,
+    /** 原文区占内容高度的比例，取值必须落在 MIN/MAX_SPLIT_FRACTION 之间。 */
+    var splitFraction: Float = DEFAULT_SPLIT_FRACTION,
+
     // —— 网络 ——
     var requestTimeoutSec: Int = 120,
     var maxRetries: Int = 2,
@@ -237,6 +243,13 @@ data class AppSettings(
 
     companion object {
         const val DEFAULT_PROMPT_ID = "default"
+
+        /** 分割比例的默认值（原文与译文各占一半）。 */
+        const val DEFAULT_SPLIT_FRACTION = 0.5f
+        /** 分割比例下限。 */
+        const val MIN_SPLIT_FRACTION = 0.2f
+        /** 分割比例上限。Modifier.weight() 不能传 0，也不能越界，故限制在 0.2~0.8。 */
+        const val MAX_SPLIT_FRACTION = 0.8f
     }
 }
 

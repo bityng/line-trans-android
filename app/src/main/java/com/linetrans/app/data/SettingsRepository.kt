@@ -53,6 +53,13 @@ object SettingsRepository {
         requestTimeoutSec = requestTimeoutSec.coerceIn(10, 600)
         autoSaveMs = autoSaveMs.coerceIn(200, 5000)
         uiScale = uiScale.coerceIn(0.8f, 1.5f)
+        // 翻译界面分割线：老设置里没有这两个字段，Gson 会保留默认值（不锁、0.5）；
+        // 但历史版本/备份里可能出现 0、负数或 NaN，直接喂给 Modifier.weight() 会崩，必须拦住。
+        if (!splitFraction.isFinite()) splitFraction = AppSettings.DEFAULT_SPLIT_FRACTION
+        splitFraction = splitFraction.coerceIn(
+            AppSettings.MIN_SPLIT_FRACTION,
+            AppSettings.MAX_SPLIT_FRACTION
+        )
         if (dictionarySource !in listOf("auto", "local", "oxford_web", "oxford_api", "wiktionary", "ai")) {
             dictionarySource = "auto"
         }

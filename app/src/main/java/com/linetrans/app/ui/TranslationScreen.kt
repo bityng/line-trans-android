@@ -121,6 +121,7 @@ import com.linetrans.app.data.DocRepository
 import com.linetrans.app.data.ExportManager
 import com.linetrans.app.data.SettingsRepository
 import com.linetrans.app.data.WordbookRepository
+import com.linetrans.app.model.AppSettings
 import com.linetrans.app.model.ExportFormat
 import com.linetrans.app.model.TranslationDoc
 import com.linetrans.app.model.TranslationUnit
@@ -174,8 +175,16 @@ fun TranslationScreen(docId: String, startIndex: Int = 0, viewOnly: Boolean = fa
     var readOnly by remember(docId) { mutableStateOf(viewOnly) }
     var translatedText by remember(docId) { mutableStateOf(doc.units[currentIndex].translation) }
     var editableOriginal by remember(docId) { mutableStateOf(false) }
-    var dividerLocked by remember(docId) { mutableStateOf(false) }
-    var splitFraction by remember(docId) { mutableFloatStateOf(0.5f) }
+    // 分割线的锁定状态与比例是持久化设置：打开界面时读回，改动时写回
+    var dividerLocked by remember(docId) { mutableStateOf(SettingsRepository.settings.dividerLocked) }
+    var splitFraction by remember(docId) {
+        mutableFloatStateOf(
+            SettingsRepository.settings.splitFraction.coerceIn(
+                AppSettings.MIN_SPLIT_FRACTION,
+                AppSettings.MAX_SPLIT_FRACTION
+            )
+        )
+    }
     var aiLoading by remember(docId) { mutableStateOf(false) }
     var topMenu by remember(docId) { mutableStateOf(false) }
     var unitMenu by remember(docId) { mutableStateOf(false) }
@@ -863,8 +872,10 @@ fun TranslationScreen(docId: String, startIndex: Int = 0, viewOnly: Boolean = fa
             if (!imeOpen && !readOnly) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                     IconButton(onClick = {
-                        dividerLocked = !dividerLocked
-                        toast(if (dividerLocked) "已锁定分割线" else "已解锁分割线")
+                        val next = !dividerLocked
+                        dividerLocked = next
+                        SettingsRepository.update { it.copy(dividerLocked = next) }
+                        toast(if (next) "已锁定分割线" else "已解锁分割线")
                     }) {
                         Icon(
                             if (dividerLocked) Icons.Default.Lock else Icons.Default.LockOpen,
@@ -874,8 +885,17 @@ fun TranslationScreen(docId: String, startIndex: Int = 0, viewOnly: Boolean = fa
                     }
                     Slider(
                         value = splitFraction,
-                        onValueChange = { if (!dividerLocked) splitFraction = it.coerceIn(0.2f, 0.8f) },
-                        valueRange = 0.2f..0.8f,
+                        onValueChange = {
+                            if (!dividerLocked) {
+                                val v = it.coerceIn(
+                                    AppSettings.MIN_SPLIT_FRACTION,
+                                    AppSettings.MAX_SPLIT_FRACTION
+                                )
+                                splitFraction = v
+                                SettingsRepository.update { s -> s.copy(splitFraction = v) }
+                            }
+                        },
+                        valueRange = AppSettings.MIN_SPLIT_FRACTION..AppSettings.MAX_SPLIT_FRACTION,
                         enabled = !dividerLocked,
                         modifier = Modifier.weight(1f)
                     )
