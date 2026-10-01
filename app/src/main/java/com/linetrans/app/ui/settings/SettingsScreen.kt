@@ -1466,8 +1466,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.aboutTab(context: Con
         }
     }
     item {
-        SectionCard(title = "最近更新", subtitle = "v1.8.1", icon = Icons.Default.AutoAwesome) {
+        SectionCard(title = "最近更新", subtitle = "v1.8.2", icon = Icons.Default.AutoAwesome) {
             listOf(
+                "侧边栏『网页翻译台』可直接跳到对应的局域网 Web 服务设置项",
                 "内置网页台补齐查词接口：局域网浏览器里也能点词查义了",
                 "移除网页台页脚的 Shell 终端死链",
                 "网页台新增划词查义：点词即出释义，复用内置离线词库，不联网也能查",
