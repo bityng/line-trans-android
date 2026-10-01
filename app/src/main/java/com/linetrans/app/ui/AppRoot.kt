@@ -16,6 +16,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.linetrans.app.data.SettingsRepository
+import com.linetrans.app.ui.settings.SettingsAnchor
 import com.linetrans.app.ui.settings.SettingsScreen
 
 @Composable
@@ -65,7 +66,8 @@ fun AppRoot() {
                 onOpenDoc = { id, start, viewOnly ->
                     nav.navigate("translate/" + id + "?start=" + start + "&view=" + viewOnly)
                 },
-                onOpenSettings = { nav.navigate("settings") }
+                onOpenSettings = { nav.navigate("settings") },
+                onOpenWebServer = { nav.navigate("settings?anchor=" + SettingsAnchor.WEB_SERVER.name) }
             )
         }
         composable(
@@ -92,8 +94,19 @@ fun AppRoot() {
                 onBack = { nav.popBackStack() }
             )
         }
-        composable("settings") {
-            SettingsScreen(onBack = { nav.popBackStack() })
+        composable(
+            route = "settings?anchor={anchor}",
+            arguments = listOf(
+                navArgument("anchor") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                }
+            )
+        ) { entry ->
+            SettingsScreen(
+                onBack = { nav.popBackStack() },
+                anchor = SettingsAnchor.fromParam(entry.arguments?.getString("anchor"))
+            )
         }
     }
 }

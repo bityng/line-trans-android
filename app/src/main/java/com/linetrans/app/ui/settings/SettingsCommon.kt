@@ -1,5 +1,7 @@
 package com.linetrans.app.ui.settings
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -27,23 +29,38 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.linetrans.app.ui.Motion
 
 @Composable
 fun SectionCard(
     title: String,
     subtitle: String? = null,
     icon: ImageVector? = null,
+    // 被外部入口定位到时短暂高亮，帮用户找到目标项
+    highlight: Boolean = false,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val container by animateColorAsState(
+        targetValue = if (highlight) MaterialTheme.colorScheme.primaryContainer
+        else MaterialTheme.colorScheme.surface,
+        animationSpec = Motion.value(560),
+        label = "section-highlight"
+    )
+    val elevation by animateDpAsState(
+        targetValue = if (highlight) 8.dp else 1.dp,
+        animationSpec = Motion.value(560),
+        label = "section-highlight-elevation"
+    )
     Card(
         Modifier.fillMaxWidth().padding(top = 4.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        colors = CardDefaults.cardColors(containerColor = container),
+        elevation = CardDefaults.cardElevation(defaultElevation = elevation)
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {

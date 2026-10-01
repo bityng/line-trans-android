@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -61,7 +62,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -83,10 +86,11 @@ import com.linetrans.app.model.ModelConfig
 import com.linetrans.app.model.PromptTemplates
 import com.linetrans.app.model.ProviderConfig
 import com.linetrans.app.model.ProviderType
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.UUID
 
-private enum class SettingsTab(val label: String) {
+enum class SettingsTab(val label: String) {
     AI("AI 翻译"),
     UI("界面"),
     DATA("数据"),
@@ -94,13 +98,31 @@ private enum class SettingsTab(val label: String) {
     ABOUT("关于")
 }
 
+/**
+ * 设置页的定位锚点：主界面侧边栏等外部入口进入设置时，指定要落到哪一项。
+ *
+ * [index] 是该项在所属分类 LazyColumn 里的声明序号，与 [advancedTab] 中卡片的书写顺序一一对应；
+ * 在分类里插入 / 调整卡片时要同步改这里。
+ */
+enum class SettingsAnchor(val tab: SettingsTab, val index: Int) {
+    /** 「高级」分类的第 3 张卡片：局域网 Web 服务。 */
+    WEB_SERVER(SettingsTab.ADVANCED, 2);
+
+    companion object {
+        /** 导航参数 → 锚点；空值或不认识的值返回 null，按普通方式打开设置页。 */
+        fun fromParam(param: String?): SettingsAnchor? = entries.firstOrNull { it.name == param }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onBack: () -> Unit) {
+fun SettingsScreen(onBack: () -> Unit, anchor: SettingsAnchor? = null) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
-    var tab by remember { mutableStateOf(SettingsTab.AI) }
+    var tab by remember { mutableStateOf(anchor?.tab ?: SettingsTab.AI) }
+    // 锚点只消费一次：定位并高亮之后即作废，用户自己切回该分类时按常规从顶部看起
+    var pending by remember { mutableStateOf(anchor) }
 
     fun notify(message: String) {
         scope.launch { snackbar.showSnackbar(message) }
@@ -141,17 +163,31 @@ fun SettingsScreen(onBack: () -> Unit) {
                 },
                 label = "settings-tab"
             ) { current ->
-                LazyColumn(
-                    Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 32.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    when (current) {
-                        SettingsTab.AI -> aiTab(context, ::notify)
-                        SettingsTab.UI -> uiTab()
-                        SettingsTab.DATA -> dataTab(context, ::notify)
-                        SettingsTab.ADVANCED -> advancedTab(context, ::notify)
-                        SettingsTab.ABOUT -> aboutTab(context)
+                // key(current)：切换分类时新旧内容会同时在场，各自持有独立的列表状态
+                key(current) {
+                    val anchorHere = pending?.takeIf { it.tab == current }
+                    var highlighted by remember { mutableStateOf(false) }
+                    LaunchedEffect(current) {
+                        if (anchorHere != null) {
+                            pending = null
+                            highlighted = true
+                            delay(2400)
+                            highlighted = false
+                        }
+                    }
+                    LazyColumn(
+                        Modifier.fillMaxSize(),
+                        state = rememberLazyListState(initialFirstVisibleItemIndex = anchorHere?.index ?: 0),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 32.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        when (current) {
+                            SettingsTab.AI -> aiTab(context, ::notify)
+                            SettingsTab.UI -> uiTab()
+                            SettingsTab.DATA -> dataTab(context, ::notify)
+                            SettingsTab.ADVANCED -> advancedTab(context, ::notify, highlighted)
+                            SettingsTab.ABOUT -> aboutTab(context)
+                        }
                     }
                 }
             }
@@ -1166,7 +1202,12 @@ private fun BackupCard(context: Context, notify: Notify) {
 // ———————————————————————— 高级 ————————————————————————
 
 @OptIn(ExperimentalLayoutApi::class)
-private fun androidx.compose.foundation.lazy.LazyListScope.advancedTab(context: Context, notify: Notify) {
+// 卡片顺序即 SettingsAnchor.index 的取值：0 网络与请求 / 1 编辑与输入 / 2 局域网 Web 服务
+private fun androidx.compose.foundation.lazy.LazyListScope.advancedTab(
+    context: Context,
+    notify: Notify,
+    highlightWebServer: Boolean = false
+) {
     item {
         SectionCard(title = "网络与请求", subtitle = "超时、重试与代理", icon = Icons.Default.Sync) {
             NetworkSettings(context, notify)
@@ -1208,7 +1249,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.advancedTab(context: 
         SectionCard(
             title = "局域网 Web 服务",
             subtitle = "同一局域网内的设备用浏览器打开即可继续翻译",
-            icon = Icons.Default.Storage
+            icon = Icons.Default.Storage,
+            highlight = highlightWebServer
         ) {
             WebServerSettings(context, notify)
         }

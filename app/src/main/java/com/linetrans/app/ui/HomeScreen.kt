@@ -130,7 +130,11 @@ private enum class DocFilter(val label: String) {
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun HomeScreen(onOpenDoc: (String, Int, Boolean) -> Unit, onOpenSettings: () -> Unit) {
+fun HomeScreen(
+    onOpenDoc: (String, Int, Boolean) -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenWebServer: () -> Unit
+) {
     val context = LocalContext.current
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -307,7 +311,7 @@ fun HomeScreen(onOpenDoc: (String, Int, Boolean) -> Unit, onOpenSettings: () -> 
                             selected = false,
                             onClick = {
                                 scope.launch { drawerState.close() }
-                                onOpenSettings()
+                                onOpenWebServer()
                             }
                         )
                     }
