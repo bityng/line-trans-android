@@ -19,8 +19,8 @@ android {
         applicationId = "com.linetrans.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 13
-        versionName = "1.8.2"
+        versionCode = 14
+        versionName = "1.8.3"
         vectorDrawables {
             useSupportLibrary = true
         }

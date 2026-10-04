@@ -1466,8 +1466,10 @@ private fun androidx.compose.foundation.lazy.LazyListScope.aboutTab(context: Con
         }
     }
     item {
-        SectionCard(title = "最近更新", subtitle = "v1.8.2", icon = Icons.Default.AutoAwesome) {
+        SectionCard(title = "最近更新", subtitle = "v1.8.3", icon = Icons.Default.AutoAwesome) {
             listOf(
+                "修复内置网页台「逐行 / 逐句」切换点了没反应：POST 路由此前被同路径的读接口挡住",
+                "修复网页台里打的中文回到手机变成乱码：请求体现在一律按 UTF-8 解码",
                 "侧边栏『网页翻译台』可直接跳到对应的局域网 Web 服务设置项",
                 "内置网页台补齐查词接口：局域网浏览器里也能点词查义了",
                 "移除网页台页脚的 Shell 终端死链",

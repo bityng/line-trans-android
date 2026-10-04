@@ -17,6 +17,7 @@ import com.linetrans.app.model.TranslationDoc
 import com.linetrans.app.model.UnitMode
 import fi.iki.elonen.NanoHTTPD
 import kotlinx.coroutines.runBlocking
+import java.io.InputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
@@ -95,15 +96,22 @@ class WebApi(private val context: android.content.Context) {
 
     // ---------- 路由 ----------
 
+    /**
+     * 路由分发。`when` 取的是**第一个命中**的分支，所以同路径的 POST 分支必须排在 GET 分支前面：
+     * 曾经把 `path == "api/doc"` 写在 `path == "api/doc" && isPost` 之前，
+     * POST /api/doc 被 GET 分支吃掉 → [docDetail] 拿不到 id（JSON 体不在 parameters 里）→
+     * 直接回 400「缺少 id 参数」，[patchDoc] 成了死代码，
+     * 于是网页台的「逐行 / 逐句」按钮怎么点都切换不了。
+     */
     fun handle(session: NanoHTTPD.IHTTPSession): NanoHTTPD.Response {
-        var path = session.uri.removePrefix("/")
+        val path = session.uri.removePrefix("/")
         val isPost = session.method == NanoHTTPD.Method.POST
         return when {
             path == "api/info" -> json(info())
             path == "api/docs" -> json(mapOf("docs" to docs()))
+            path == "api/doc" && isPost -> patchDoc(body(session))
             path == "api/doc" -> docDetail(param(session, "id"))
             path == "api/unit" && isPost -> saveUnit(body(session))
-            path == "api/doc" && isPost -> patchDoc(body(session))
             path == "api/ai" && isPost -> runAi(body(session))
             path == "api/export" -> export(param(session, "id"), param(session, "format"))
             path == "api/lookup" -> lookup(session)
@@ -422,12 +430,44 @@ class WebApi(private val context: android.content.Context) {
     private fun param(session: NanoHTTPD.IHTTPSession, name: String): String? =
         session.parameters?.get(name)?.firstOrNull()
 
-    private fun body(session: NanoHTTPD.IHTTPSession): String = try {
-        val files = HashMap<String, String>()
-        session.parseBody(files)
-        files["postData"] ?: ""
-    } catch (e: Exception) {
-        ""
+    /**
+     * 读取 POST 请求体（JSON）。
+     *
+     * **必须自己按 UTF-8 读原始字节，不能只依赖 NanoHTTPD 的 parseBody**：
+     * NanoHTTPD 2.3.1 在 Content-Type 没写 charset 时按 **US-ASCII** 解码请求体
+     * （源码里的 ASCII_ENCODING 兜底），非 ASCII 字符会直接变成**不可逆**的 U+FFFD。
+     * 实测：`Content-Type: application/json` + 体 `{"translation":"你好，世界"}`
+     * → parseBody 给出 `"\uFFFD…"`（15 个 65533）；带上 `charset=utf-8` 才正确。
+     * 网页台旧版 app.js 发的正是没有 charset 的那种，于是「网页台输完 → 回到安卓端全是乱码」。
+     * 现在两端 app.js 都显式发 charset=utf-8，这里再按 UTF-8 兜一层：
+     * curl / 第三方客户端同样不会再写坏文档。
+     */
+    private fun body(session: NanoHTTPD.IHTTPSession): String {
+        val length = session.headers?.get("content-length")?.trim()?.toIntOrNull() ?: -1
+        if (length in 0..MAX_BODY_BYTES) {
+            readExactly(session.inputStream, length)?.let { return String(it, Charsets.UTF_8) }
+        }
+        // Content-Length 缺失 / 超长 / 读不满：退回 NanoHTTPD 自己的解析（此时要靠请求头里的 charset）
+        return try {
+            val files = HashMap<String, String>()
+            session.parseBody(files)
+            files["postData"] ?: ""
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
+    /** 从请求流里精确读满 size 个字节；读不满（连接提前断开）返回 null。 */
+    private fun readExactly(input: InputStream, size: Int): ByteArray? {
+        if (size == 0) return ByteArray(0)
+        val buf = ByteArray(size)
+        var read = 0
+        while (read < size) {
+            val n = input.read(buf, read, size - read)
+            if (n < 0) return null
+            read += n
+        }
+        return buf
     }
 
     /** 文档数据是 Compose 状态，统一回到主线程读写，避免并发问题。 */
@@ -440,5 +480,10 @@ class WebApi(private val context: android.content.Context) {
             latch.countDown()
         }
         return if (latch.await(8, TimeUnit.SECONDS)) result else null
+    }
+
+    companion object {
+        /** 请求体上限，与网页端 server.js 的 8MB 上限一致；超过就退回 NanoHTTPD 的分块落盘解析。 */
+        private const val MAX_BODY_BYTES = 8 * 1024 * 1024
     }
 }
