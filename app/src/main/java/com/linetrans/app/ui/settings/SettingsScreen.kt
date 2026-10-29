@@ -1466,8 +1466,10 @@ private fun androidx.compose.foundation.lazy.LazyListScope.aboutTab(context: Con
         }
     }
     item {
-        SectionCard(title = "最近更新", subtitle = "v1.8.3", icon = Icons.Default.AutoAwesome) {
+        SectionCard(title = "最近更新", subtitle = "v1.9.0", icon = Icons.Default.AutoAwesome) {
             listOf(
+                "三端设备互通：局域网自动发现手机/电脑/网页服务端，也能手填远程服务器",
+                "网页台新增「设备」入口：看对端文件、同步到本地、或直接编辑对端文件",
                 "修复内置网页台「逐行 / 逐句」切换点了没反应：POST 路由此前被同路径的读接口挡住",
                 "修复网页台里打的中文回到手机变成乱码：请求体现在一律按 UTF-8 解码",
                 "侧边栏『网页翻译台』可直接跳到对应的局域网 Web 服务设置项",

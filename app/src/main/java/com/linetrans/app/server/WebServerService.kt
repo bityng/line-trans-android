@@ -52,6 +52,8 @@ class WebServerService : Service() {
         val s = WebServer(applicationContext, port)
         s.startServer()
         server = s
+        // 局域网设备发现（v1.9.0）：让手机也能被网页端 / PC 端看见
+        PeerDiscovery.start(applicationContext, port)
         running = true
         return START_STICKY
     }
@@ -86,6 +88,7 @@ class WebServerService : Service() {
 
     override fun onDestroy() {
         running = false
+        PeerDiscovery.stop()
         server?.stop()
         server = null
         super.onDestroy()

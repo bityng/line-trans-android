@@ -3,6 +3,8 @@ package com.linetrans.app.server
 import android.os.Handler
 import android.os.Looper
 import com.google.gson.Gson
+import com.google.gson.JsonArray
+import com.google.gson.JsonElement
 import com.google.gson.JsonNull
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
@@ -17,6 +19,10 @@ import com.linetrans.app.model.TranslationDoc
 import com.linetrans.app.model.UnitMode
 import fi.iki.elonen.NanoHTTPD
 import kotlinx.coroutines.runBlocking
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.InputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -109,6 +115,18 @@ class WebApi(private val context: android.content.Context) {
         return when {
             path == "api/info" -> json(info())
             path == "api/docs" -> json(mapOf("docs" to docs()))
+            // ---------- 设备互通（v1.9.0，契约与 line-trans-web 一致）----------
+            path == "api/peer" && isPost -> renamePeer(body(session))
+            path == "api/peer" -> json(peerJson())
+            path == "api/peers" && isPost -> addPeer(body(session))
+            path == "api/peers" && session.method == NanoHTTPD.Method.DELETE -> removePeer(param(session, "id"))
+            path == "api/peers" -> peersJson()
+            path == "api/remote/docs" -> remoteDocs(session)
+            path == "api/remote/doc" -> remoteDoc(session)
+            path == "api/remote/unit" && isPost -> remoteUnit(body(session))
+            path == "api/remote/pull" && isPost -> remotePull(body(session))
+            path == "api/import" && isPost -> importDoc(body(session))
+
             path == "api/doc" && isPost -> patchDoc(body(session))
             path == "api/doc" -> docDetail(param(session, "id"))
             path == "api/unit" && isPost -> saveUnit(body(session))
@@ -413,6 +431,234 @@ class WebApi(private val context: android.content.Context) {
     private fun errorBody(message: String): JsonObject = JsonObject().apply {
         addProperty("ok", false)
         addProperty("error", message)
+    }
+
+    // ---------- 设备互通（v1.9.0，契约与 line-trans-web 一致）----------
+
+    private val http = OkHttpClient.Builder()
+        .connectTimeout(4, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
+        .build()
+
+    /** 代理一次对端请求；失败抛异常，由调用方转成 ok:false（不把整台服务拖死）。 */
+    private fun proxy(peer: PeerInfo, pathAndQuery: String, bodyJson: String? = null): String {
+        var url = peer.baseUrl + pathAndQuery
+        if (peer.token.isNotBlank()) {
+            url += (if (pathAndQuery.contains('?')) "&" else "?") + "token=" +
+                java.net.URLEncoder.encode(peer.token, "UTF-8")
+        }
+        val builder = Request.Builder().url(url)
+        if (bodyJson != null) {
+            builder.post(bodyJson.toRequestBody("application/json; charset=utf-8".toMediaType()))
+        }
+        http.newCall(builder.build()).execute().use { res ->
+            val text = res.body?.string() ?: ""
+            if (!res.isSuccessful) throw IllegalStateException("对端返回 " + res.code + "：" + text.take(120))
+            return text
+        }
+    }
+
+    private fun peerJson(): JsonObject = JsonObject().apply {
+        addProperty("ok", true)
+        add("peer", JsonObject().apply {
+            addProperty("id", PeerDiscovery.deviceId)
+            addProperty("name", PeerDiscovery.deviceName)
+            addProperty("platform", "android")
+            addProperty("version", BuildConfig.VERSION_NAME)
+            addProperty("api", 1)
+            addProperty("port", SettingsRepository.settings.webServerPort)
+        })
+    }
+
+    private fun renamePeer(payload: String): NanoHTTPD.Response {
+        val obj = runCatching { JsonParser.parseString(payload).asJsonObject }.getOrNull()
+            ?: return error("请求体不是合法 JSON")
+        obj.get("name")?.let { if (!it.isJsonNull) PeerDiscovery.setDeviceName(it.asString) }
+        return json(peerJson())
+    }
+
+    private fun peersJson(): NanoHTTPD.Response = json(JsonObject().apply {
+        addProperty("ok", true)
+        add("self", peerJson().get("peer"))
+        add("peers", gson.toJsonTree(PeerDiscovery.list()))
+        addProperty("discovery", true)
+    })
+
+    /** 手填远程服务器：先探活 /api/peer，通了才入册。 */
+    private fun addPeer(payload: String): NanoHTTPD.Response {
+        val obj = runCatching { JsonParser.parseString(payload).asJsonObject }.getOrNull()
+            ?: return error("请求体不是合法 JSON")
+        val raw = obj.get("url")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+        if (raw.isBlank()) return error("缺少 url")
+        val token = obj.get("token")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+        val wanted = obj.get("name")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+        val normalized = (if (raw.startsWith("http://") || raw.startsWith("https://")) raw else "http://" + raw).trimEnd('/')
+        val probe = PeerInfo(
+            id = normalized, name = wanted, platform = "remote", version = "",
+            url = normalized, token = token, manual = true
+        )
+        val remote = try {
+            val text = proxy(probe, "api/peer")
+            val peerObj = runCatching { JsonParser.parseString(text).asJsonObject.getAsJsonObject("peer") }.getOrNull()
+            PeerInfo(
+                id = peerObj?.get("id")?.takeIf { !it.isJsonNull }?.asString ?: normalized,
+                name = peerObj?.get("name")?.takeIf { !it.isJsonNull }?.asString ?: normalized,
+                platform = peerObj?.get("platform")?.takeIf { !it.isJsonNull }?.asString ?: "remote",
+                version = peerObj?.get("version")?.takeIf { !it.isJsonNull }?.asString ?: "",
+                url = normalized, token = token, manual = true
+            )
+        } catch (e: Exception) {
+            return json(JsonObject().apply {
+                addProperty("ok", false)
+                addProperty("error", "连不上：" + (e.message ?: "未知错误"))
+            })
+        }
+        val saved = PeerDiscovery.addManual(normalized, token, wanted, remote)
+        return json(JsonObject().apply {
+            addProperty("ok", true)
+            add("peer", gson.toJsonTree(mapOf("id" to saved.id, "name" to saved.name, "url" to saved.baseUrl)))
+            add("peers", gson.toJsonTree(PeerDiscovery.list()))
+        })
+    }
+
+    private fun removePeer(id: String?): NanoHTTPD.Response {
+        if (id.isNullOrBlank()) return error("缺少 id")
+        if (!PeerDiscovery.removeManual(id)) {
+            return error("没有这个远程服务器", NanoHTTPD.Response.Status.NOT_FOUND)
+        }
+        return json(JsonObject().apply {
+            addProperty("ok", true)
+            add("peers", gson.toJsonTree(PeerDiscovery.list()))
+        })
+    }
+
+    private fun remoteDocs(session: NanoHTTPD.IHTTPSession): NanoHTTPD.Response {
+        val peer = PeerDiscovery.find(param(session, "peer").orEmpty())
+            ?: return error("设备不存在", NanoHTTPD.Response.Status.NOT_FOUND)
+        return try {
+            val root = JsonParser.parseString(proxy(peer, "api/docs")).asJsonObject
+            PeerDiscovery.touch(peer.id)
+            json(JsonObject().apply {
+                addProperty("ok", true)
+                add("peer", gson.toJsonTree(mapOf("id" to peer.id, "name" to peer.name)))
+                add("docs", root.getAsJsonArray("docs") ?: JsonArray())
+            })
+        } catch (e: Exception) {
+            json(JsonObject().apply { addProperty("ok", false); addProperty("error", e.message ?: "读取失败") })
+        }
+    }
+
+    private fun remoteDoc(session: NanoHTTPD.IHTTPSession): NanoHTTPD.Response {
+        val peer = PeerDiscovery.find(param(session, "peer").orEmpty())
+            ?: return error("设备不存在", NanoHTTPD.Response.Status.NOT_FOUND)
+        val docId = param(session, "id")
+        if (docId.isNullOrBlank()) return error("缺少 id")
+        return try {
+            val root = JsonParser.parseString(
+                proxy(peer, "api/doc?id=" + java.net.URLEncoder.encode(docId, "UTF-8"))
+            ).asJsonObject
+            PeerDiscovery.touch(peer.id)
+            json(root)
+        } catch (e: Exception) {
+            json(JsonObject().apply { addProperty("ok", false); addProperty("error", e.message ?: "读取失败") })
+        }
+    }
+
+    private fun remoteUnit(payload: String): NanoHTTPD.Response {
+        val obj = runCatching { JsonParser.parseString(payload).asJsonObject }.getOrNull()
+            ?: return error("请求体不是合法 JSON")
+        val peer = PeerDiscovery.find(obj.get("peer")?.takeIf { !it.isJsonNull }?.asString.orEmpty())
+            ?: return error("设备不存在", NanoHTTPD.Response.Status.NOT_FOUND)
+        val forward = JsonObject().apply {
+            for (key in listOf("docId", "index", "translation", "source", "done", "starred")) {
+                obj.get(key)?.let { add(key, it) }
+            }
+        }
+        return try {
+            val root = JsonParser.parseString(proxy(peer, "api/unit", gson.toJson(forward))).asJsonObject
+            PeerDiscovery.touch(peer.id)
+            json(root)
+        } catch (e: Exception) {
+            json(JsonObject().apply { addProperty("ok", false); addProperty("error", e.message ?: "写入失败") })
+        }
+    }
+
+    /** 同步到本地：把对端文档整篇复制成一篇本地文档（对端不受影响）。 */
+    private fun remotePull(payload: String): NanoHTTPD.Response {
+        val obj = runCatching { JsonParser.parseString(payload).asJsonObject }.getOrNull()
+            ?: return error("请求体不是合法 JSON")
+        val peer = PeerDiscovery.find(obj.get("peer")?.takeIf { !it.isJsonNull }?.asString.orEmpty())
+            ?: return error("设备不存在", NanoHTTPD.Response.Status.NOT_FOUND)
+        val docId = obj.get("docId")?.takeIf { !it.isJsonNull }?.asString.orEmpty()
+        if (docId.isBlank()) return error("缺少 docId")
+        return try {
+            val remote = JsonParser.parseString(
+                proxy(peer, "api/doc?id=" + java.net.URLEncoder.encode(docId, "UTF-8"))
+            ).asJsonObject
+            val doc = buildLocalDoc(remote, "（来自" + peer.name + "）", "同步")
+            val result = onMain {
+                DocRepository.save(doc, immediate = true)
+                JsonObject().apply {
+                    addProperty("ok", true)
+                    addProperty("id", doc.id)
+                    addProperty("name", doc.name)
+                    addProperty("total", doc.totalCount)
+                    addProperty("done", doc.translatedCount)
+                }
+            }
+            PeerDiscovery.touch(peer.id)
+            json(result ?: JsonObject().apply { addProperty("ok", false); addProperty("error", "保存失败") })
+        } catch (e: Exception) {
+            json(JsonObject().apply { addProperty("ok", false); addProperty("error", e.message ?: "同步失败") })
+        }
+    }
+
+    /** 新建文档（导入统一入口）。 */
+    private fun importDoc(payload: String): NanoHTTPD.Response {
+        val obj = runCatching { JsonParser.parseString(payload).asJsonObject }.getOrNull()
+            ?: return error("请求体不是合法 JSON")
+        if (obj.getAsJsonArray("units") == null) return error("缺少 units")
+        return try {
+            val doc = buildLocalDoc(obj, "", obj.get("folder")?.takeIf { !it.isJsonNull }?.asString ?: "同步")
+            val result = onMain {
+                DocRepository.save(doc, immediate = true)
+                JsonObject().apply {
+                    addProperty("ok", true)
+                    addProperty("id", doc.id)
+                    addProperty("name", doc.name)
+                    addProperty("total", doc.totalCount)
+                }
+            }
+            json(result ?: JsonObject().apply { addProperty("ok", false); addProperty("error", "保存失败") })
+        } catch (e: Exception) {
+            json(JsonObject().apply { addProperty("ok", false); addProperty("error", e.message ?: "导入失败") })
+        }
+    }
+
+    /** 把对端 / 导入的 JSON 转成本地文档；folder 与名字后缀由调用方给。 */
+    private fun buildLocalDoc(root: JsonObject, nameSuffix: String, folder: String): TranslationDoc {
+        val built = ArrayList<com.linetrans.app.model.TranslationUnit>()
+        (root.getAsJsonArray("units") ?: JsonArray()).forEach { el ->
+            val u = el.asJsonObject
+            built.add(
+                com.linetrans.app.model.TranslationUnit(
+                    source = u.get("source")?.takeIf { !it.isJsonNull }?.asString.orEmpty(),
+                    translation = u.get("translation")?.takeIf { !it.isJsonNull }?.asString.orEmpty(),
+                    done = u.get("done")?.takeIf { !it.isJsonNull }?.asBoolean ?: false,
+                    starred = u.get("starred")?.takeIf { !it.isJsonNull }?.asBoolean ?: false
+                )
+            )
+        }
+        val mode = if (root.get("unitMode")?.takeIf { !it.isJsonNull }?.asString == "SENTENCE") UnitMode.SENTENCE else UnitMode.LINE
+        val baseName = root.get("name")?.takeIf { !it.isJsonNull }?.asString ?: "未命名文档"
+        return TranslationDoc(
+            id = java.util.UUID.randomUUID().toString(),
+            name = baseName + nameSuffix,
+            folder = folder,
+            units = built,
+            unitMode = mode,
+            sourceText = built.joinToString("\n") { it.source }
+        )
     }
 
     // ---------- 工具 ----------

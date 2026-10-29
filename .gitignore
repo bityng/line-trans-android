@@ -26,3 +26,10 @@ Thumbs.db
 # Kotlin / Native
 .cxx
 .externalNativeBuild
+
+# 本地 AI 协作说明：只在本地用，不进仓库
+AGENTS.md
+
+# Kotlin 2.x 的本地缓存目录
+.kotlin/
+*.hprof
