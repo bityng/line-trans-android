@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Star
@@ -1414,6 +1415,13 @@ private fun WebServerSettings(context: Context, notify: Notify) {
             }) {
                 Icon(Icons.Default.ContentCopy, contentDescription = "复制地址")
             }
+            IconButton(onClick = {
+                runCatching {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(base + "/" + suffix)))
+                }.onFailure { notify("没有可用的浏览器") }
+            }) {
+                Icon(Icons.Default.OpenInNew, contentDescription = "在浏览器打开网页台")
+            }
         }
         Text(
             "网页翻译台：" + base + "/",
@@ -1466,8 +1474,12 @@ private fun androidx.compose.foundation.lazy.LazyListScope.aboutTab(context: Con
         }
     }
     item {
-        SectionCard(title = "最近更新", subtitle = "v1.9.0", icon = Icons.Default.AutoAwesome) {
+        SectionCard(title = "最近更新", subtitle = "v1.9.1", icon = Icons.Default.AutoAwesome) {
             listOf(
+                "安卓端补上原生「设备」页：侧边栏 → 设备，直接看局域网里的手机/电脑，点开就能同步文件或直接编辑",
+                "「设备」页可添加远程服务器、看在线状态，并一键打开网页翻译台",
+                "设置 →「局域网 Web 服务」新增「在浏览器打开」按钮，不用再手动复制地址",
+                "网页台支持 ?peer=&doc= 深链：从安卓「设备」页点「直接编辑」直达对端文档",
                 "三端设备互通：局域网自动发现手机/电脑/网页服务端，也能手填远程服务器",
                 "网页台新增「设备」入口：看对端文件、同步到本地、或直接编辑对端文件",
                 "修复内置网页台「逐行 / 逐句」切换点了没反应：POST 路由此前被同路径的读接口挡住",

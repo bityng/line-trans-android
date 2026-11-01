@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Folder
@@ -133,7 +134,8 @@ private enum class DocFilter(val label: String) {
 fun HomeScreen(
     onOpenDoc: (String, Int, Boolean) -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenWebServer: () -> Unit
+    onOpenWebServer: () -> Unit,
+    onOpenDevices: () -> Unit
 ) {
     val context = LocalContext.current
     val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -302,6 +304,16 @@ fun HomeScreen(
                             onClick = {
                                 scope.launch { drawerState.close() }
                                 onOpenSettings()
+                            }
+                        )
+                        DrawerRow(
+                            icon = Icons.Default.Devices,
+                            title = "设备",
+                            count = null,
+                            selected = false,
+                            onClick = {
+                                scope.launch { drawerState.close() }
+                                onOpenDevices()
                             }
                         )
                         DrawerRow(

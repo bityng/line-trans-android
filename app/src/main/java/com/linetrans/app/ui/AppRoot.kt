@@ -67,8 +67,12 @@ fun AppRoot() {
                     nav.navigate("translate/" + id + "?start=" + start + "&view=" + viewOnly)
                 },
                 onOpenSettings = { nav.navigate("settings") },
-                onOpenWebServer = { nav.navigate("settings?anchor=" + SettingsAnchor.WEB_SERVER.name) }
+                onOpenWebServer = { nav.navigate("settings?anchor=" + SettingsAnchor.WEB_SERVER.name) },
+                onOpenDevices = { nav.navigate("devices") }
             )
+        }
+        composable("devices") {
+            DeviceScreen(onBack = { nav.popBackStack() })
         }
         composable(
             route = "translate/{docId}?start={start}&view={view}",
