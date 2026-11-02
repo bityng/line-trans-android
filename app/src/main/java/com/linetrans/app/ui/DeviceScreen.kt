@@ -332,8 +332,12 @@ fun DeviceScreen(onBack: () -> Unit) {
                     }
                 },
                 actions = {
-                    IconButton(onClick = { refreshTick++ }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "刷新")
+                    IconButton(onClick = {
+                        // 立即搜索：先发探针让在线设备马上回包，再刷新列表
+                        com.linetrans.app.server.PeerDiscovery.probeNow()
+                        refreshTick++
+                    }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "立即搜索")
                     }
                     IconButton(onClick = { addOpen = true }) {
                         Icon(Icons.Default.Add, contentDescription = "添加远程服务器")

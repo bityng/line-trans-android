@@ -1474,8 +1474,10 @@ private fun androidx.compose.foundation.lazy.LazyListScope.aboutTab(context: Con
         }
     }
     item {
-        SectionCard(title = "最近更新", subtitle = "v1.9.1", icon = Icons.Default.AutoAwesome) {
+        SectionCard(title = "最近更新", subtitle = "v1.9.2", icon = Icons.Default.AutoAwesome) {
             listOf(
+                "修复切换「逐行 / 逐句」把译文弄丢：现在按字符区间对齐，原文变了也能把老译文搬过去（拆段给第一句、合段用换行接回）",
+                "设备发现更靠谱：广播同时发到每块网卡的子网地址，并支持「一问一答」探针；设备页右上角改成「立即搜索」",
                 "安卓端补上原生「设备」页：侧边栏 → 设备，直接看局域网里的手机/电脑，点开就能同步文件或直接编辑",
                 "「设备」页可添加远程服务器、看在线状态，并一键打开网页翻译台",
                 "设置 →「局域网 Web 服务」新增「在浏览器打开」按钮，不用再手动复制地址",

@@ -268,4 +268,113 @@ object TextParser {
 
     fun buildLineUnit(source: String, translation: String = ""): TranslationUnit =
         TranslationUnit(source, translation)
+
+    /**
+     * 切换逐行 / 逐句时把老译文搬到新单元上（v1.9.2）。
+     *
+     * 以前只认「原文完全一致」的对齐，而切分方式一变原文就变了 —— 切一次译文全丢。
+     * 现在按字符区间对齐，三种情况都保住内容：
+     *   1. 原文一样 → 直接搬；
+     *   2. 一段拆成多句 → 译文能按换行拆成同样份数就逐句给，拆不出就先给第一句（绝不重复）；
+     *   3. 多句合成一段 → 用换行接起来，切回去还能原样拆开。
+     * 语义与网页端 server.js 的 realignUnits、PC 端 DocRepository.RebuildUnits 一致。
+     */
+    fun realignUnits(
+        sourceText: String,
+        previous: List<TranslationUnit>,
+        next: List<TranslationUnit>
+    ): List<TranslationUnit> {
+        val oldSpans = unitSpans(sourceText, previous.map { it.source })
+        val newSpans = unitSpans(sourceText, next.map { it.source })
+
+        val exact = HashMap<String, TranslationUnit>()
+        previous.forEach { exact[it.source] = it }
+
+        // 新单元整个落在哪个老单元里（= 一段被拆成多句），以及组内序号
+        val holder = IntArray(next.size) { -1 }
+        for (i in next.indices) {
+            val ns = newSpans[i] ?: continue
+            for (j in previous.indices) {
+                val os = oldSpans[j] ?: continue
+                if (os.first <= ns.first && ns.second <= os.second) {
+                    holder[i] = j
+                    break
+                }
+            }
+        }
+        val groupIndex = IntArray(next.size)
+        val groupSize = HashMap<Int, Int>()
+        val counter = HashMap<Int, Int>()
+        for (i in next.indices) {
+            val j = holder[i]
+            if (j < 0) continue
+            val n = counter[j] ?: 0
+            groupIndex[i] = n
+            counter[j] = n + 1
+            groupSize[j] = n + 1
+        }
+
+        return next.mapIndexed { i, unit ->
+            val prev = exact[unit.source]
+            val span = newSpans[i]
+            when {
+                prev != null -> TranslationUnit(unit.source, prev.translation, prev.done, prev.starred)
+                span == null -> TranslationUnit(unit.source)
+                holder[i] >= 0 -> {
+                    val old = previous[holder[i]]
+                    when {
+                        old.translation.isEmpty() -> TranslationUnit(unit.source, "", false, old.starred)
+                        else -> {
+                            val parts = old.translation.split("\n")
+                            val size = groupSize[holder[i]] ?: 1
+                            when {
+                                parts.size == size -> {
+                                    val piece = parts.getOrElse(groupIndex[i]) { "" }
+                                    TranslationUnit(unit.source, piece, piece.isNotBlank() || old.done, old.starred)
+                                }
+                                groupIndex[i] == 0 -> TranslationUnit(unit.source, old.translation, true, old.starred)
+                                else -> TranslationUnit(unit.source, "", false, old.starred)
+                            }
+                        }
+                    }
+                }
+                else -> {
+                    // 合并：多个老单元落进同一个新单元，用换行接起来
+                    val pieces = ArrayList<String>()
+                    var starred = false
+                    for (k in previous.indices) {
+                        val os = oldSpans[k] ?: continue
+                        if (!(os.second > span.first && os.first < span.second)) continue
+                        val old = previous[k]
+                        if (old.starred) starred = true
+                        if (old.translation.isNotBlank()) pieces.add(old.translation)
+                    }
+                    val joined = pieces.joinToString("\n")
+                    // 与 server.js / PC 端一致：合并后只要有译文就算 done
+                    TranslationUnit(unit.source, joined, joined.isNotBlank(), starred)
+                }
+            }
+        }
+    }
+
+    /** 给一组单元在原文里算字符区间 [起, 止)；找不到的记 null。 */
+    private fun unitSpans(text: String, sources: List<String>): List<Pair<Int, Int>?> {
+        val out = ArrayList<Pair<Int, Int>?>(sources.size)
+        var cursor = 0
+        for (src in sources) {
+            if (src.isEmpty()) {
+                out.add(null)
+                continue
+            }
+            var at = text.indexOf(src, cursor)
+            if (at < 0) at = text.indexOf(src)
+            if (at < 0) {
+                out.add(null)
+                continue
+            }
+            out.add(at to (at + src.length))
+            if (at + src.length > cursor) cursor = at + src.length
+        }
+        return out
+    }
 }

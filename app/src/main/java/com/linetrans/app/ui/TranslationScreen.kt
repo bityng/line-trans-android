@@ -350,11 +350,8 @@ fun TranslationScreen(docId: String, startIndex: Int = 0, viewOnly: Boolean = fa
         val anchor = currentUnit()?.source
         val anchorTranslated = currentUnit()?.translation ?: ""
         val source = if (doc.sourceText.isNotBlank()) doc.sourceText else doc.units.joinToString("\n") { it.source }
-        val oldBySource = doc.units.associateBy { it.source }
-        val newUnits = TextParser.parse(source, newMode).map { u ->
-            val old = oldBySource[u.source]
-            if (old != null) TranslationUnit(u.source, old.translation, old.done, old.starred) else u
-        }.toMutableList()
+        // 按字符区间对齐老译文（原文跟着切分方式变，也不该把译文丢掉），见 TextParser.realignUnits
+        val newUnits = TextParser.realignUnits(source, doc.units.toList(), TextParser.parse(source, newMode)).toMutableList()
         doc.units.clear()
         doc.units.addAll(newUnits)
         doc.unitMode = newMode

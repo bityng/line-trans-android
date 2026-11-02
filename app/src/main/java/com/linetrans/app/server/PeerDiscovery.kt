@@ -57,6 +57,40 @@ object PeerDiscovery {
     @Volatile private var socket: DatagramSocket? = null
     @Volatile private var running = false
 
+    /** 本机广播内容（探针 / 立即搜索复用，不用重新序列化）。 */
+    @Volatile private var selfPacket: ByteArray? = null
+
+    /**
+     * 要发广播的地址：255.255.255.255 + 每块在用网卡的子网广播地址。
+     * 只发 255.255.255.255 时，多网卡（移动数据 + Wi-Fi、VPN、热点）经常一个包都出不去 ——
+     * 「自动发现不灵」多半就是它。
+     */
+    private fun broadcastTargets(): List<java.net.InetAddress> {
+        val out = ArrayList<java.net.InetAddress>()
+        runCatching { out.add(java.net.InetAddress.getByName("255.255.255.255")) }
+        runCatching {
+            for (ni in java.net.NetworkInterface.getNetworkInterfaces()) {
+                if (!ni.isUp || ni.isLoopback) continue
+                for (ia in ni.interfaceAddresses) {
+                    val b = ia.broadcast ?: continue
+                    if (b is java.net.Inet4Address && out.none { it == b }) out.add(b)
+                }
+            }
+        }
+        return out
+    }
+
+    /** 「立即搜索」：马上发一次探针广播，在线的设备会单播回包（不用等下一个 3 秒周期）。 */
+    fun probeNow() {
+        val sock = socket ?: return
+        val payload = selfPacket ?: return
+        runCatching {
+            broadcastTargets().forEach { target ->
+                runCatching { sock.send(DatagramPacket(payload, payload.size, target, DISCOVERY_PORT)) }
+            }
+        }
+    }
+
     val deviceId: String
         get() {
             val prefs = appContext?.getSharedPreferences(PREFS, Context.MODE_PRIVATE) ?: return fallbackId
@@ -133,14 +167,17 @@ object PeerDiscovery {
         val payload = gson.toJson(
             mapOf(
                 "lt" to "peer",
-                "v" to 1,
+                "v" to 2,
                 "id" to deviceId,
                 "name" to deviceName,
                 "platform" to "android",
                 "version" to BuildConfig.VERSION_NAME,
-                "port" to port
+                "port" to port,
+                // q=1 表示「探针」：收到的一方单播回一个自己的信息，发现从「等广播」变成「一问一答」
+                "q" to 1
             )
         ).toByteArray(Charsets.UTF_8)
+        selfPacket = payload
 
         val receiver = Thread({
             val buf = ByteArray(2048)
@@ -165,6 +202,14 @@ object PeerDiscovery {
                         port = remotePort,
                         lastSeen = System.currentTimeMillis()
                     )
+                    // 对方在「立即搜索」：单播回一个自己的信息，让它马上看见我
+                    if ((map["q"] as? Number)?.toInt() == 1) {
+                        val self = selfPacket
+                        val address = packet.address
+                        if (self != null && address != null) {
+                            runCatching { sock.send(DatagramPacket(self, self.size, address, DISCOVERY_PORT)) }
+                        }
+                    }
                 } catch (e: Exception) {
                     if (!running) break
                     Thread.sleep(200)
@@ -176,7 +221,9 @@ object PeerDiscovery {
 
         while (running) {
             try {
-                sock.send(DatagramPacket(payload, payload.size, InetAddress.getByName("255.255.255.255"), DISCOVERY_PORT))
+                broadcastTargets().forEach { target ->
+                    runCatching { sock.send(DatagramPacket(payload, payload.size, target, DISCOVERY_PORT)) }
+                }
                 val now = System.currentTimeMillis()
                 discovered.entries.removeIf { now - it.value.lastSeen > OFFLINE_MS }
             } catch (e: Exception) {
