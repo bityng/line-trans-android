@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  明文 HTTP 政策（v1.9.4）。
+
+  本工具的所有设备互通都是局域网 / 本机 HTTP：
+    · 本机互通服务      http://127.0.0.1:8080
+    · 局域网对端设备     http://192.168.x.x:8080|8787|8790
+    · 手填的公网服务器   http://47.80.61.79:8787
+  Android 9（API 28）起默认禁止明文，于是 OkHttp 一律抛
+  「CLEARTEXT communication to 127.0.0.1 not permitted by network security policy」，
+  设备页永远「0 台在线」——v1.9.2 那个版本在真机上就是这样废掉的。
+
+  这里显式允许明文（app 本身没有任何 HTTPS 端点，不存在「降级」风险），
+  只保留系统默认的「不信任用户安装的 CA」，避免抓包中间人。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

@@ -234,6 +234,10 @@ fun DeviceScreen(onBack: () -> Unit) {
     var refreshTick by remember { mutableStateOf(0) }
     var pulling by remember { mutableStateOf("") }
 
+    // 手填的排前面、自动发现的排后面，界面上分两段显示
+    val manualPeers = peers.filter { it.manual }
+    val discovered = peers.filter { !it.manual }
+
     fun notify(message: String) {
         scope.launch { snackbar.showSnackbar(message) }
     }
@@ -242,7 +246,7 @@ fun DeviceScreen(onBack: () -> Unit) {
         val result = withContext(Dispatchers.IO) { runCatching { DeviceApi.peers() } }
         return result.fold(
             onSuccess = { list -> peers = list; loadError = ""; true },
-            onFailure = { e -> loadError = e.message ?: "读取失败"; false }
+            onFailure = { e -> loadError = friendlyError(e.message); false }
         )
     }
 
@@ -270,7 +274,7 @@ fun DeviceScreen(onBack: () -> Unit) {
         scope.launch {
             val result = withContext(Dispatchers.IO) { runCatching { DeviceApi.remoteDocs(peer.id) } }
             result.onSuccess { docs -> docsOf = docsOf + (peer.id to docs); docErrorOf = docErrorOf - peer.id }
-                .onFailure { e -> docErrorOf = docErrorOf + (peer.id to (e.message ?: "读取失败")) }
+                .onFailure { e -> docErrorOf = docErrorOf + (peer.id to friendlyError(e.message)) }
         }
     }
 
@@ -281,7 +285,7 @@ fun DeviceScreen(onBack: () -> Unit) {
             val result = withContext(Dispatchers.IO) { runCatching { DeviceApi.pull(peer.id, doc.id) } }
             pulling = ""
             result.onSuccess { name -> notify("已同步到本地：" + name) }
-                .onFailure { e -> notify("同步失败：" + (e.message ?: "未知错误")) }
+                .onFailure { e -> notify("同步失败：" + friendlyError(e.message)) }
         }
     }
 
@@ -305,7 +309,7 @@ fun DeviceScreen(onBack: () -> Unit) {
                 docsOf = docsOf - peer.id
                 notify("已移除：" + peer.name)
                 refreshTick++
-            }.onFailure { e -> notify("移除失败：" + (e.message ?: "未知错误")) }
+            }.onFailure { e -> notify("移除失败：" + friendlyError(e.message)) }
         }
     }
 
@@ -380,62 +384,83 @@ fun DeviceScreen(onBack: () -> Unit) {
                 }
             }
 
+            // ---- 远程服务器（手填的公网 / 跨网地址）----
             item {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "附近设备",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Text(
-                        if (loadError.isBlank()) "每 3 秒自动刷新" else loadError,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (loadError.isBlank()) MaterialTheme.colorScheme.onSurfaceVariant
-                        else MaterialTheme.colorScheme.error
-                    )
-                }
-            }
-
-            if (peers.isEmpty()) {
-                item {
-                    Card(
-                        Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant
-                        )
-                    ) {
-                        Column(Modifier.padding(16.dp)) {
-                            Text("还没发现其它设备", style = MaterialTheme.typography.titleSmall)
-                            Spacer(Modifier.height(6.dp))
-                            Text(
-                                "1. 手机和电脑要在同一个 Wi-Fi；\n" +
-                                    "2. 对方也要开着 LineTrans（网页端 / PC 端 / 另一台手机）；\n" +
-                                    "3. 公网服务器用右上角 ＋ 手填地址和令牌。",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            }
-
-            items(peers, key = { it.id }) { peer ->
-                PeerCard(
-                    peer = peer,
-                    expanded = expandedId == peer.id,
-                    docs = docsOf[peer.id],
-                    docError = docErrorOf[peer.id],
-                    pullingKey = pulling,
-                    onToggle = { togglePeer(peer) },
-                    onPull = { doc -> pullDoc(peer, doc) },
-                    onEdit = { doc ->
-                        openConsole(
-                            "peer=" + Uri.encode(peer.id) + "&doc=" + Uri.encode(doc.id)
-                        )
-                    },
-                    onRemove = { removePeer(peer) }
+                SectionHeader(
+                    title = "远程服务器",
+                    hint = if (manualPeers.isEmpty()) "" else manualPeers.size.toString() + " 台"
                 )
+            }
+            item {
+                androidx.compose.material3.OutlinedButton(
+                    onClick = { addOpen = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("添加远程服务器（地址 + 令牌）")
+                }
+            }
+            if (manualPeers.isEmpty()) {
+                item {
+                    HintCard(
+                        title = "还没添加远程服务器",
+                        body = "服务器 / 另一台不同 Wi-Fi 的设备用这里：填 http://地址:端口，" +
+                            "对方设了访问令牌就一起填上。"
+                    )
+                }
+            } else {
+                items(manualPeers, key = { "m-" + it.id }) { peer ->
+                    PeerCard(
+                        peer = peer,
+                        expanded = expandedId == peer.id,
+                        docs = docsOf[peer.id],
+                        docError = docErrorOf[peer.id],
+                        pullingKey = pulling,
+                        onToggle = { togglePeer(peer) },
+                        onPull = { doc -> pullDoc(peer, doc) },
+                        onEdit = { doc ->
+                            openConsole("peer=" + Uri.encode(peer.id) + "&doc=" + Uri.encode(doc.id))
+                        },
+                        onRemove = { removePeer(peer) }
+                    )
+                }
+            }
+
+            // ---- 局域网设备（UDP 自动发现）----
+            item {
+                SectionHeader(
+                    title = "局域网设备",
+                    hint = if (loadError.isNotBlank()) loadError else "每 3 秒自动刷新",
+                    isError = loadError.isNotBlank()
+                )
+            }
+            if (discovered.isEmpty()) {
+                item {
+                    HintCard(
+                        title = "同一 Wi-Fi 里没发现别的设备",
+                        body = "1. 手机和电脑要在同一个 Wi-Fi（不要一个连 5G、一个连访客网络）；\n" +
+                            "2. 对方要开着 LineTrans（网页端 / PC 端 / 另一台手机）；\n" +
+                            "3. 电脑开了防火墙的话，放行 8790 / 8080；\n" +
+                            "4. 点右上角 ⟳ 立即搜索，不用等下一轮广播。"
+                    )
+                }
+            } else {
+                items(discovered, key = { "d-" + it.id }) { peer ->
+                    PeerCard(
+                        peer = peer,
+                        expanded = expandedId == peer.id,
+                        docs = docsOf[peer.id],
+                        docError = docErrorOf[peer.id],
+                        pullingKey = pulling,
+                        onToggle = { togglePeer(peer) },
+                        onPull = { doc -> pullDoc(peer, doc) },
+                        onEdit = { doc ->
+                            openConsole("peer=" + Uri.encode(peer.id) + "&doc=" + Uri.encode(doc.id))
+                        },
+                        onRemove = { removePeer(peer) }
+                    )
+                }
             }
 
             item {
@@ -459,6 +484,67 @@ fun DeviceScreen(onBack: () -> Unit) {
                 refreshTick++
             }
         )
+    }
+}
+
+/**
+ * 把底层异常翻成人话 —— 界面上绝不直接甩 OkHttp 原文。
+ * 尤其是 Android 9+ 的 CLEARTEXT 限制，用户看到只会一脸问号。
+ */
+private fun friendlyError(raw: String?): String {
+    val text = raw ?: return "未知错误"
+    return when {
+        text.contains("CLEARTEXT", ignoreCase = true) ->
+            "系统禁止明文 HTTP（v1.9.4 起已放开；若还出现请更新客户端）"
+        text.contains("refused", ignoreCase = true) || text.contains("Failed to connect", ignoreCase = true) ||
+            text.contains("ECONNREFUSED", ignoreCase = true) ->
+            "连不上本机互通服务：等一两秒再点右上角刷新"
+        text.contains("timeout", ignoreCase = true) || text.contains("timed out", ignoreCase = true) ->
+            "超时：对方可能不在同一网络，或者没在运行"
+        text.contains("401") || text.contains("未授权") ->
+            "令牌不对：检查对方设置的访问令牌"
+        text.contains("404") -> "对方版本可能太旧（没有这个接口）"
+        else -> text.take(120)
+    }
+}
+
+@Composable
+private fun SectionHeader(title: String, hint: String = "", isError: Boolean = false) {
+    Row(
+        Modifier.fillMaxWidth().padding(top = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.weight(1f)
+        )
+        if (hint.isNotBlank()) {
+            Text(
+                hint,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun HintCard(title: String, body: String) {
+    Card(
+        Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                body,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 
@@ -642,7 +728,7 @@ private fun AddPeerDialog(
                         }
                         busy = false
                         result.onSuccess { onAdded(it) }
-                            .onFailure { hint = it.message ?: "连接失败" }
+                            .onFailure { hint = friendlyError(it.message) }
                     }
                 }
             ) { Text(if (busy) "连接中…" else "连接并保存") }

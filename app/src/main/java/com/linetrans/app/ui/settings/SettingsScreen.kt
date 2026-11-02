@@ -1474,8 +1474,11 @@ private fun androidx.compose.foundation.lazy.LazyListScope.aboutTab(context: Con
         }
     }
     item {
-        SectionCard(title = "最近更新", subtitle = "v1.9.2", icon = Icons.Default.AutoAwesome) {
+        SectionCard(title = "最近更新", subtitle = "v1.9.4", icon = Icons.Default.AutoAwesome) {
             listOf(
+                "修复设备页永远「0 台在线」：Android 9+ 默认禁止明文 HTTP，本机与局域网请求被系统拦掉，现已放开",
+                "设备页重做：分成「远程服务器 / 局域网设备」两段，空状态给可操作提示，错误改成人话（不再甩 OkHttp 原文）",
+                "修复设置访问令牌后网页台白屏：令牌现在只保护接口数据，静态页面与 JS/CSS 不再被拦",
                 "修复切换「逐行 / 逐句」把译文弄丢：现在按字符区间对齐，原文变了也能把老译文搬过去（拆段给第一句、合段用换行接回）",
                 "设备发现更靠谱：广播同时发到每块网卡的子网地址，并支持「一问一答」探针；设备页右上角改成「立即搜索」",
                 "安卓端补上原生「设备」页：侧边栏 → 设备，直接看局域网里的手机/电脑，点开就能同步文件或直接编辑",

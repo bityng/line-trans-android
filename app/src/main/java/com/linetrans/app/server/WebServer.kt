@@ -30,8 +30,10 @@ class WebServer(
 
     /** 入口是 [NanoHTTPD.serve]：serveHttp() 只存在于 NanoWSD（已随终端一起移除），普通 NanoHTTPD 没有这个方法。 */
     override fun serve(session: IHTTPSession): Response {
-        if (!tokenAllowed(session)) return unauthorized()
         val uri = session.uri.removePrefix("/")
+        // 令牌只保护 api/（数据）。静态页面与 app.js / style.css 必须放行，
+        // 否则浏览器打开 ?token=xxx 时页面本体能进、子资源全 401，界面一片空白。
+        if (uri.startsWith("api/") && !tokenAllowed(session)) return unauthorized()
         return when {
             uri.startsWith("api/") -> api.handle(session)
             uri.isEmpty() || uri == "app" -> serveWebApp("index.html")
