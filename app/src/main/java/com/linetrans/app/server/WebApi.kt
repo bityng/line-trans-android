@@ -442,7 +442,9 @@ class WebApi(private val context: android.content.Context) {
 
     /** 代理一次对端请求；失败抛异常，由调用方转成 ok:false（不把整台服务拖死）。 */
     private fun proxy(peer: PeerInfo, pathAndQuery: String, bodyJson: String? = null): String {
-        var url = peer.baseUrl + pathAndQuery
+        // baseUrl 已经 trim 掉结尾斜杠，而这里传进来的是 "api/docs"（没有前导斜杠），
+        // 直接相加会变成 http://host:8787api/docs → OkHttp 报 Invalid URL port: "8787api"。
+        var url = peer.baseUrl.trimEnd('/') + "/" + pathAndQuery.trimStart('/')
         if (peer.token.isNotBlank()) {
             url += (if (pathAndQuery.contains('?')) "&" else "?") + "token=" +
                 java.net.URLEncoder.encode(peer.token, "UTF-8")

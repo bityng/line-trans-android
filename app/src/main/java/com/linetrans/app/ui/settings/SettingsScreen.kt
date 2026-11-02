@@ -1474,8 +1474,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.aboutTab(context: Con
         }
     }
     item {
-        SectionCard(title = "最近更新", subtitle = "v1.9.4", icon = Icons.Default.AutoAwesome) {
+        SectionCard(title = "最近更新", subtitle = "v1.9.5", icon = Icons.Default.AutoAwesome) {
             listOf(
+                "修复设备点开就报「Invalid URL port: \"8787api\"」：地址与接口拼接少了个斜杠，局域网设备与远程服务器都连不上",
                 "修复设备页永远「0 台在线」：Android 9+ 默认禁止明文 HTTP，本机与局域网请求被系统拦掉，现已放开",
                 "设备页重做：分成「远程服务器 / 局域网设备」两段，空状态给可操作提示，错误改成人话（不再甩 OkHttp 原文）",
                 "修复设置访问令牌后网页台白屏：令牌现在只保护接口数据，静态页面与 JS/CSS 不再被拦",
