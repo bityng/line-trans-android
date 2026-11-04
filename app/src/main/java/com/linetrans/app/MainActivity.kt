@@ -8,6 +8,7 @@ import com.linetrans.app.data.SettingsRepository
 import com.linetrans.app.data.WordbookRepository
 import com.linetrans.app.ai.LocalDictionary
 import com.linetrans.app.util.SpeechService
+import com.linetrans.app.server.PeerDocSync
 import com.linetrans.app.server.WebServerService
 import com.linetrans.app.ui.AppRoot
 import com.linetrans.app.ui.theme.LineTransTheme
@@ -20,6 +21,7 @@ class MainActivity : ComponentActivity() {
         WordbookRepository.init(applicationContext)
         LocalDictionary.init(applicationContext)
         SpeechService.init(applicationContext)
+        PeerDocSync.init(applicationContext)
         if (SettingsRepository.settings.webServerAutoStart && !WebServerService.isRunning) {
             runCatching { WebServerService.start(applicationContext) }
         }
