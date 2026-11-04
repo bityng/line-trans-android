@@ -126,6 +126,7 @@ import com.linetrans.app.model.ExportFormat
 import com.linetrans.app.model.TranslationDoc
 import com.linetrans.app.model.TranslationUnit
 import com.linetrans.app.model.UnitMode
+import com.linetrans.app.server.PeerDocSync
 import com.linetrans.app.util.CostCalculator
 import com.linetrans.app.util.TextParser
 import com.linetrans.app.util.SpeechService
@@ -165,6 +166,10 @@ fun TranslationScreen(docId: String, startIndex: Int = 0, viewOnly: Boolean = fa
         EmptyDocScreen(doc = doc, onBack = onBack)
         return
     }
+
+    // 远程镜像（v1.9.6「直接编辑」对端文档时建的那份本地镜像）非空：
+    // 编辑照常落本地，同时经本机代理写回对端设备；切分方式切换要挡掉（索引会整体错位）。
+    val remoteBinding = remember(docId) { PeerDocSync.bindingOf(docId) }
 
     val settings = SettingsRepository.settings
     var revision by remember(docId) { mutableIntStateOf(0) }
@@ -241,6 +246,13 @@ fun TranslationScreen(docId: String, startIndex: Int = 0, viewOnly: Boolean = fa
         editSessionIndex = index
     }
 
+    /** 远程镜像文档：把这一句的改动经本机代理（/api/remote/unit）写回对端；本地文档直接忽略。 */
+    fun pushUnitRemote(unit: TranslationUnit) {
+        if (remoteBinding == null) return
+        val idx = doc.units.indexOfFirst { it === unit }
+        if (idx >= 0) PeerDocSync.pushUnit(doc.id, idx, unit)
+    }
+
     /** 统一的单元格更新入口：处理“今日进度”与文档保存。 */
     fun applyUnit(unit: TranslationUnit, translation: String? = null, done: Boolean? = null) {
         val wasDone = unit.isDone
@@ -249,6 +261,7 @@ fun TranslationScreen(docId: String, startIndex: Int = 0, viewOnly: Boolean = fa
         if (!wasDone && unit.isDone) SettingsRepository.bumpDaily(1)
         DocRepository.save(doc)
         revision++
+        pushUnitRemote(unit)
     }
 
     fun select(index: Int) {
@@ -292,6 +305,7 @@ fun TranslationScreen(docId: String, startIndex: Int = 0, viewOnly: Boolean = fa
         unit.done = snap.done
         DocRepository.save(doc)
         revision++
+        pushUnitRemote(unit)
         if (snap.index != currentIndex) select(snap.index) else translatedText = snap.text
         editSessionIndex = -1
         toast("已撤销")
@@ -305,6 +319,7 @@ fun TranslationScreen(docId: String, startIndex: Int = 0, viewOnly: Boolean = fa
         unit.done = snap.done
         DocRepository.save(doc)
         revision++
+        pushUnitRemote(unit)
         if (snap.index != currentIndex) select(snap.index) else translatedText = snap.text
         editSessionIndex = -1
         toast("已重做")
@@ -346,6 +361,11 @@ fun TranslationScreen(docId: String, startIndex: Int = 0, viewOnly: Boolean = fa
 
     fun switchMode(newMode: UnitMode) {
         if (newMode == doc.unitMode) return
+        // 远程镜像不能切切分方式：本地的单元索引会整体重排，之后按句回推对端必然写错句子
+        if (remoteBinding != null) {
+            notify("远程文档不支持切换切分方式（对端按原有切分存储）")
+            return
+        }
         // 锚定当前这句的原文，切分方式变化后仍停在原来的位置
         val anchor = currentUnit()?.source
         val anchorTranslated = currentUnit()?.translation ?: ""
@@ -483,6 +503,7 @@ fun TranslationScreen(docId: String, startIndex: Int = 0, viewOnly: Boolean = fa
                     memoryHits++
                     SettingsRepository.bumpDaily(1)
                     DocRepository.save(doc)
+                    pushUnitRemote(unit)
                     batchDone++
                     revision++
                     continue
@@ -502,6 +523,7 @@ fun TranslationScreen(docId: String, startIndex: Int = 0, viewOnly: Boolean = fa
                     countCost(result)
                     SettingsRepository.bumpDaily(1)
                     DocRepository.save(doc)
+                    pushUnitRemote(unit)
                     batchDone++
                     revision++
                     currentIndex = i
@@ -526,6 +548,7 @@ fun TranslationScreen(docId: String, startIndex: Int = 0, viewOnly: Boolean = fa
             if (unit.translation != translatedText) applyUnit(unit, translation = translatedText)
         }
         DocRepository.flushAll()
+        PeerDocSync.flushNow()
         onBack()
     }
 
@@ -573,9 +596,12 @@ fun TranslationScreen(docId: String, startIndex: Int = 0, viewOnly: Boolean = fa
                         )
                         Text(
                             "已完成 " + stats.first + " / " + stats.second + " " + unitLabel(mode) +
-                                " · " + if (mode == UnitMode.SENTENCE) "逐句" else "逐行",
+                                " · " + (if (mode == UnitMode.SENTENCE) "逐句" else "逐行") +
+                                if (remoteBinding != null) " · 编辑写回「" + remoteBinding.peerName + "」" else "",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 },
@@ -744,13 +770,15 @@ fun TranslationScreen(docId: String, startIndex: Int = 0, viewOnly: Boolean = fa
                         FilterChip(
                             selected = mode == UnitMode.SENTENCE,
                             onClick = { switchMode(UnitMode.SENTENCE) },
-                            label = { Text("逐句") }
+                            label = { Text("逐句") },
+                            enabled = remoteBinding == null
                         )
                         Spacer(Modifier.width(8.dp))
                         FilterChip(
                             selected = mode == UnitMode.LINE,
                             onClick = { switchMode(UnitMode.LINE) },
-                            label = { Text("逐行") }
+                            label = { Text("逐行") },
+                            enabled = remoteBinding == null
                         )
                     }
                     Spacer(Modifier.weight(1f))
@@ -760,6 +788,7 @@ fun TranslationScreen(docId: String, startIndex: Int = 0, viewOnly: Boolean = fa
                             unit.starred = !unit.starred
                             DocRepository.save(doc)
                             revision++
+                            pushUnitRemote(unit)
                         }
                     }) {
                         Icon(
@@ -834,6 +863,7 @@ fun TranslationScreen(docId: String, startIndex: Int = 0, viewOnly: Boolean = fa
                                 unit.source = text
                                 DocRepository.save(doc)
                                 revision++
+                                pushUnitRemote(unit)
                             }
                         },
                         placeholder = { Text("原文") },
@@ -1111,6 +1141,7 @@ fun TranslationScreen(docId: String, startIndex: Int = 0, viewOnly: Boolean = fa
             onApply = { query, replacement, target, all ->
                 pushSnapshot(force = true)
                 var count = 0
+                val changedIdx = ArrayList<Int>()
                 doc.units.forEachIndexed { i, unit ->
                     val inSource = target != ReplaceScope.TRANSLATION && unit.source.contains(query, ignoreCase = true)
                     val inTranslation = target != ReplaceScope.SOURCE && unit.translation.contains(query, ignoreCase = true)
@@ -1119,8 +1150,13 @@ fun TranslationScreen(docId: String, startIndex: Int = 0, viewOnly: Boolean = fa
                     if (inSource) unit.source = unit.source.replace(query, replacement, ignoreCase = true)
                     if (inTranslation) unit.translation = unit.translation.replace(query, replacement, ignoreCase = true)
                     count++
+                    changedIdx.add(i)
                 }
                 DocRepository.save(doc, immediate = true)
+                // 远程镜像：被替换过的句子逐条回推对端
+                changedIdx.forEach { i ->
+                    doc.units.getOrNull(i)?.let { PeerDocSync.pushUnit(doc.id, i, it) }
+                }
                 revision++
                 translatedText = currentUnit()?.translation ?: ""
                 showFindReplace = false
