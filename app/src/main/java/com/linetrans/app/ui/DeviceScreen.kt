@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.linetrans.app.data.SettingsRepository
+import com.linetrans.app.server.PeerDocSync
 import com.linetrans.app.server.WebServerService
 import com.linetrans.app.ui.settings.SectionCard
 import com.linetrans.app.util.NetworkUtils
@@ -72,21 +73,24 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
 /**
- * 设备（v1.9.1）。
+ * 设备（v1.9.1；v1.9.6 起「直接编辑」改为应用内打开）。
  *
  * v1.9.0 的三端互通只做在内置网页台里，安卓原生界面没有任何入口 ——
  * 用户根本找不到这个功能。这一页把入口补回来：
  *
  *   · 局域网自动发现的设备（同 Wi-Fi 下开着网页服务的手机 / 电脑 / 网页服务端）
  *   · 手填的远程服务器（公网地址 + 令牌）
- *   · 点开一台设备看它的文档，可以「同步到本地」或「直接编辑」（深链到网页台）
+ *   · 点开一台设备看它的文档，可以「同步到本地」，或「直接编辑」——
+ *     v1.9.5 及以前是深链跳浏览器网页台，v1.9.6 起由 [PeerDocSync] 拉一份本地镜像
+ *     并直接打开原生翻译页，改动按句自动写回对端（与 PC 端同一套思路）
  *
  * 界面本身不直连对端：所有跨端请求都走本机服务（127.0.0.1:端口）的
  * /api/peers、/api/remote/docs|doc|unit|pull，与网页台用的是同一套契约，改一处两端一致。
  */
 private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
 
-private data class PeerRow(
+/** 设备列表行（HomeScreen 的设备卡也用，保持同包可见）。 */
+data class PeerRow(
     val id: String,
     val name: String,
     val platform: String,
@@ -107,7 +111,8 @@ private data class PeerRow(
         }
 }
 
-private data class DocRow(
+/** 对端文档列表行（HomeScreen 的设备卡也用，保持同包可见）。 */
+data class DocRow(
     val id: String,
     val name: String,
     val unitMode: String,
@@ -115,8 +120,8 @@ private data class DocRow(
     val done: Int
 )
 
-/** 本机服务的薄封装：只做 HTTP + JSON 取字段，逻辑全在 WebApi 那边。 */
-private object DeviceApi {
+/** 本机服务的薄封装：只做 HTTP + JSON 取字段，逻辑全在 WebApi 那边（HomeScreen 的设备卡也用它）。 */
+object DeviceApi {
     private val http = OkHttpClient.Builder()
         .connectTimeout(3, TimeUnit.SECONDS)
         .readTimeout(8, TimeUnit.SECONDS)
@@ -219,7 +224,7 @@ private object DeviceApi {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DeviceScreen(onBack: () -> Unit) {
+fun DeviceScreen(onBack: () -> Unit, onOpenDoc: (docId: String, startIndex: Int) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
@@ -233,6 +238,7 @@ fun DeviceScreen(onBack: () -> Unit) {
     var addOpen by remember { mutableStateOf(false) }
     var refreshTick by remember { mutableStateOf(0) }
     var pulling by remember { mutableStateOf("") }
+    var opening by remember { mutableStateOf("") }
 
     // 手填的排前面、自动发现的排后面，界面上分两段显示
     val manualPeers = peers.filter { it.manual }
@@ -286,6 +292,22 @@ fun DeviceScreen(onBack: () -> Unit) {
             pulling = ""
             result.onSuccess { name -> notify("已同步到本地：" + name) }
                 .onFailure { e -> notify("同步失败：" + friendlyError(e.message)) }
+        }
+    }
+
+    /**
+     * 直接编辑（v1.9.6）：拉对端文档建本地镜像（已有镜像则复用并刷新为对端最新），
+     * 然后直接打开原生翻译页 —— 不再跳浏览器。之后翻译页里的改动按句回推对端。
+     */
+    fun editRemote(peer: PeerRow, doc: DocRow) {
+        if (opening.isNotBlank()) return
+        opening = peer.id + "/" + doc.id
+        scope.launch {
+            val result = PeerDocSync.open(peer.id, peer.name, doc.id)
+            opening = ""
+            result.onSuccess { local ->
+                onOpenDoc(local.id, local.nextUndoneIndex(0) ?: 0)
+            }.onFailure { e -> notify("打开失败：" + friendlyError(e.message)) }
         }
     }
 
@@ -417,11 +439,10 @@ fun DeviceScreen(onBack: () -> Unit) {
                         docs = docsOf[peer.id],
                         docError = docErrorOf[peer.id],
                         pullingKey = pulling,
+                        openingKey = opening,
                         onToggle = { togglePeer(peer) },
                         onPull = { doc -> pullDoc(peer, doc) },
-                        onEdit = { doc ->
-                            openConsole("peer=" + Uri.encode(peer.id) + "&doc=" + Uri.encode(doc.id))
-                        },
+                        onEdit = { doc -> editRemote(peer, doc) },
                         onRemove = { removePeer(peer) }
                     )
                 }
@@ -453,11 +474,10 @@ fun DeviceScreen(onBack: () -> Unit) {
                         docs = docsOf[peer.id],
                         docError = docErrorOf[peer.id],
                         pullingKey = pulling,
+                        openingKey = opening,
                         onToggle = { togglePeer(peer) },
                         onPull = { doc -> pullDoc(peer, doc) },
-                        onEdit = { doc ->
-                            openConsole("peer=" + Uri.encode(peer.id) + "&doc=" + Uri.encode(doc.id))
-                        },
+                        onEdit = { doc -> editRemote(peer, doc) },
                         onRemove = { removePeer(peer) }
                     )
                 }
@@ -465,8 +485,8 @@ fun DeviceScreen(onBack: () -> Unit) {
 
             item {
                 Text(
-                    "「同步到本地」= 复制一份到本机，对端不变；「直接编辑」= 在网页台里改对端那份，" +
-                        "改完自动写回对端。",
+                    "「同步到本地」= 复制一份到本机，对端不变；「直接编辑」= 在应用内改对端那份，" +
+                        "每次改动都会自动写回对端（不再需要开浏览器）。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp)
@@ -555,6 +575,7 @@ private fun PeerCard(
     docs: List<DocRow>?,
     docError: String?,
     pullingKey: String,
+    openingKey: String,
     onToggle: () -> Unit,
     onPull: (DocRow) -> Unit,
     onEdit: (DocRow) -> Unit,
@@ -627,6 +648,7 @@ private fun PeerCard(
                         RemoteDocRow(
                             doc = doc,
                             busy = pullingKey == peer.id + "/" + doc.id,
+                            opening = openingKey == peer.id + "/" + doc.id,
                             onPull = { onPull(doc) },
                             onEdit = { onEdit(doc) }
                         )
@@ -641,6 +663,7 @@ private fun PeerCard(
 private fun RemoteDocRow(
     doc: DocRow,
     busy: Boolean,
+    opening: Boolean,
     onPull: () -> Unit,
     onEdit: () -> Unit
 ) {
@@ -659,7 +682,9 @@ private fun RemoteDocRow(
         TextButton(onClick = onPull, enabled = !busy) {
             Text(if (busy) "同步中…" else "同步到本地")
         }
-        TextButton(onClick = onEdit) { Text("直接编辑") }
+        TextButton(onClick = onEdit, enabled = !opening) {
+            Text(if (opening) "打开中…" else "直接编辑")
+        }
     }
 }
 

@@ -72,7 +72,12 @@ fun AppRoot() {
             )
         }
         composable("devices") {
-            DeviceScreen(onBack = { nav.popBackStack() })
+            DeviceScreen(
+                onBack = { nav.popBackStack() },
+                onOpenDoc = { id, start ->
+                    nav.navigate("translate/" + id + "?start=" + start + "&view=false")
+                }
+            )
         }
         composable(
             route = "translate/{docId}?start={start}&view={view}",
