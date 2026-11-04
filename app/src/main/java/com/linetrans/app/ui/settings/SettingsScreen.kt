@@ -1474,8 +1474,12 @@ private fun androidx.compose.foundation.lazy.LazyListScope.aboutTab(context: Con
         }
     }
     item {
-        SectionCard(title = "最近更新", subtitle = "v1.9.5", icon = Icons.Default.AutoAwesome) {
+        SectionCard(title = "最近更新", subtitle = "v1.9.6", icon = Icons.Default.AutoAwesome) {
             listOf(
+                "「直接编辑」不再跳浏览器：拉一份本地镜像直接在应用内改，改动按句自动写回对端（与 PC 端同一套思路）",
+                "主页新增「其它设备」卡片：自动发现局域网 / 远程服务器并展示对端文档，可直接编辑或同步到本地",
+                "远程镜像文档禁用切分方式切换，删除镜像自动清绑定；翻译页副标题标明「编辑写回对端」",
+                "安全加固：添加远程服务器与网页台深链参数都做白名单校验，拒绝回环 / 链路本地地址",
                 "修复设备点开就报「Invalid URL port: \"8787api\"」：地址与接口拼接少了个斜杠，局域网设备与远程服务器都连不上",
                 "修复设备页永远「0 台在线」：Android 9+ 默认禁止明文 HTTP，本机与局域网请求被系统拦掉，现已放开",
                 "设备页重做：分成「远程服务器 / 局域网设备」两段，空状态给可操作提示，错误改成人话（不再甩 OkHttp 原文）",
