@@ -86,6 +86,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -109,8 +110,13 @@ import com.linetrans.app.model.ExportFormat
 import com.linetrans.app.model.TranslationDoc
 import com.linetrans.app.model.TranslationUnit
 import com.linetrans.app.model.UnitMode
+import com.linetrans.app.server.PeerDocSync
+import com.linetrans.app.server.WebServerService
 import com.linetrans.app.util.TextParser
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -156,8 +162,67 @@ fun HomeScreen(
     var sortMenu by remember { mutableStateOf(false) }
     var sortMode by remember { mutableStateOf(DocRepository.sortMode) }
 
+    // 其它设备（v1.9.6）：主页直接展示局域网 / 远程服务器上的文档，点开就能编辑。
+    // 互通服务在这里按需拉起（发现线程跟着服务走），设备列表 3 秒轮询一次；
+    // 检测、代理、拉取全部复用设备页那套 DeviceApi，没有新协议。
+    var devicePeers by remember { mutableStateOf<List<PeerRow>>(emptyList()) }
+    var deviceDocs by remember { mutableStateOf<Map<String, List<DocRow>>>(emptyMap()) }
+    var deviceDocError by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var selectedDevice by remember { mutableStateOf<String?>(null) }
+    var syncingRemote by remember { mutableStateOf("") }
+    var openingRemote by remember { mutableStateOf("") }
+
     fun notify(message: String) {
         scope.launch { snackbar.showSnackbar(message) }
+    }
+
+    LaunchedEffect(Unit) {
+        if (!WebServerService.isRunning) {
+            runCatching { WebServerService.start(context.applicationContext) }
+        }
+        while (true) {
+            val result = withContext(Dispatchers.IO) { runCatching { DeviceApi.peers() } }
+            result.onSuccess { devicePeers = it }
+            delay(if (result.isSuccess) 3000 else 2000)
+        }
+    }
+
+    fun loadDeviceDocs(peerId: String) {
+        if (deviceDocs.containsKey(peerId)) return
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { runCatching { DeviceApi.remoteDocs(peerId) } }
+            result.onSuccess { docs ->
+                deviceDocs = deviceDocs + (peerId to docs)
+                deviceDocError = deviceDocError - peerId
+            }.onFailure { e ->
+                deviceDocError = deviceDocError + (peerId to (e.message ?: "读取失败"))
+            }
+        }
+    }
+
+    fun pullRemoteDoc(peer: PeerRow, doc: DocRow) {
+        if (syncingRemote.isNotBlank()) return
+        syncingRemote = peer.id + "/" + doc.id
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { runCatching { DeviceApi.pull(peer.id, doc.id) } }
+            syncingRemote = ""
+            result.onSuccess { notify("已同步到本地：" + it) }
+                .onFailure { e -> notify("同步失败：" + (e.message ?: "未知错误")) }
+        }
+    }
+
+    /** 直接编辑：拉镜像（复用已有）→ 打开原生翻译页，之后改动按句写回对端。 */
+    fun editRemoteDoc(peer: PeerRow, doc: DocRow) {
+        if (openingRemote.isNotBlank()) return
+        openingRemote = peer.id + "/" + doc.id
+        scope.launch {
+            val result = PeerDocSync.open(peer.id, peer.name, doc.id)
+            openingRemote = ""
+            result.onSuccess { local ->
+                notify("正在编辑「" + local.name + "」，改动自动写回对端")
+                onOpenDoc(local.id, local.nextUndoneIndex(0) ?: 0, false)
+            }.onFailure { e -> notify("打开失败：" + (e.message ?: "未知错误")) }
+        }
     }
 
     val textPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -449,6 +514,28 @@ fun HomeScreen(
                         item {
                             TodayHeroCard(onReset = { SettingsRepository.resetDaily() })
                         }
+                        if (devicePeers.isNotEmpty()) {
+                            item {
+                                DevicesCard(
+                                    peers = devicePeers,
+                                    selected = selectedDevice,
+                                    docs = selectedDevice?.let { deviceDocs[it] },
+                                    docError = selectedDevice?.let { deviceDocError[it] },
+                                    syncingKey = syncingRemote,
+                                    openingKey = openingRemote,
+                                    onSelect = { peerId ->
+                                        if (selectedDevice == peerId) {
+                                            selectedDevice = null
+                                        } else {
+                                            selectedDevice = peerId
+                                            loadDeviceDocs(peerId)
+                                        }
+                                    },
+                                    onEdit = { peer, doc -> editRemoteDoc(peer, doc) },
+                                    onPull = { peer, doc -> pullRemoteDoc(peer, doc) }
+                                )
+                            }
+                        }
                         item {
                             FlowRow(
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -577,6 +664,8 @@ fun HomeScreen(
             text = { Text("确定要删除「" + doc.name + "」吗？该操作不可恢复。") },
             confirmButton = {
                 TextButton(onClick = {
+                    // 远程镜像文档：连绑定一起清掉，别让回推继续往已删除的文档上打
+                    PeerDocSync.unbind(doc.id)
                     DocRepository.delete(doc.id)
                     deleteFor = null
                     notify("已删除 " + doc.name)
@@ -681,6 +770,124 @@ private fun TodayHeroCard(onReset: () -> Unit) {
                 if (done > 0) {
                     TextButton(onClick = onReset, contentPadding = PaddingValues(horizontal = 0.dp)) {
                         Text("重置今日进度", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun DevicesCard(
+    peers: List<PeerRow>,
+    selected: String?,
+    docs: List<DocRow>?,
+    docError: String?,
+    syncingKey: String,
+    openingKey: String,
+    onSelect: (String) -> Unit,
+    onEdit: (PeerRow, DocRow) -> Unit,
+    onPull: (PeerRow, DocRow) -> Unit
+) {
+    Card(
+        Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Devices,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "其它设备",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    peers.count { it.online }.toString() + " 台在线",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "点设备名展开它上面的文档，可直接编辑（改动自动写回对端）或同步到本地；管理入口在侧边栏「设备」。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(10.dp))
+            FlowRow(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                peers.forEach { p ->
+                    FilterChip(
+                        selected = selected == p.id,
+                        onClick = { onSelect(p.id) },
+                        label = { Text((if (p.online) "● " else "○ ") + p.name, maxLines = 1) }
+                    )
+                }
+            }
+            val peer = peers.firstOrNull { it.id == selected }
+            if (peer != null) {
+                Spacer(Modifier.height(8.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(8.dp))
+                when {
+                    docError != null -> Text(
+                        "读取失败：" + docError,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    docs == null -> Text(
+                        "正在读取文件列表…",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    docs.isEmpty() -> Text(
+                        "这台设备还没有文档",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    else -> docs.forEach { d ->
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    d.name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    (if (d.unitMode == "SENTENCE") "逐句" else "逐行") + " · " +
+                                        d.done + "/" + d.total,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            TextButton(
+                                onClick = { onPull(peer, d) },
+                                enabled = syncingKey != peer.id + "/" + d.id
+                            ) {
+                                Text(if (syncingKey == peer.id + "/" + d.id) "同步中…" else "同步")
+                            }
+                            TextButton(
+                                onClick = { onEdit(peer, d) },
+                                enabled = openingKey != peer.id + "/" + d.id
+                            ) {
+                                Text(if (openingKey == peer.id + "/" + d.id) "打开中…" else "编辑")
+                            }
+                        }
                     }
                 }
             }
