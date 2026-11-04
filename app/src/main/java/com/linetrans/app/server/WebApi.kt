@@ -486,6 +486,15 @@ class WebApi(private val context: android.content.Context) {
         addProperty("discovery", true)
     })
 
+    /** 回环 / 链路本地主机名一律拒绝入册（与网页台 app.js 的 safePeerUrl 同一套规则）。 */
+    private fun rejectedPeerHost(host: String): Boolean {
+        val h = host.lowercase().trim('[', ']')
+        if (h.isEmpty()) return true
+        if (h == "localhost" || h == "::1" || h == "::" || h == "0.0.0.0") return true
+        if (h.startsWith("127.") || h.startsWith("169.254.")) return true
+        return false
+    }
+
     /** 手填远程服务器：先探活 /api/peer，通了才入册。 */
     private fun addPeer(payload: String): NanoHTTPD.Response {
         val obj = runCatching { JsonParser.parseString(payload).asJsonObject }.getOrNull()
@@ -495,6 +504,16 @@ class WebApi(private val context: android.content.Context) {
         val token = obj.get("token")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
         val wanted = obj.get("name")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
         val normalized = (if (raw.startsWith("http://") || raw.startsWith("https://")) raw else "http://" + raw).trimEnd('/')
+        // SSRF 闸门（服务端不信任客户端）：本机会替调用方去探测这个地址，不能被当成
+        // 访问本机回环 / 链路本地端点（含 169.254.169.254 云元数据）的跳板。
+        // 手填回环没有意义 —— 本机文档直接就能编辑，不需要加成「远程设备」。
+        val host = runCatching { java.net.URI(normalized).host }.getOrNull()
+        if (normalized.length > 500 || host == null || rejectedPeerHost(host)) {
+            return json(JsonObject().apply {
+                addProperty("ok", false)
+                addProperty("error", "地址无效：只支持 http(s)，且不能是本机回环 / 链路本地地址")
+            })
+        }
         val probe = PeerInfo(
             id = normalized, name = wanted, platform = "remote", version = "",
             url = normalized, token = token, manual = true
