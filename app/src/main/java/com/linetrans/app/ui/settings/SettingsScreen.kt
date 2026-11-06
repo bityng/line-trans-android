@@ -1474,8 +1474,10 @@ private fun androidx.compose.foundation.lazy.LazyListScope.aboutTab(context: Con
         }
     }
     item {
-        SectionCard(title = "最近更新", subtitle = "v1.9.6", icon = Icons.Default.AutoAwesome) {
+        SectionCard(title = "最近更新", subtitle = "v1.9.7", icon = Icons.Default.AutoAwesome) {
             listOf(
+                "内置网页台修复：译文输入框与外框尺寸不同步（框比卡片窄一截），现在撑满卡片并按内容自动长高",
+                "网页台细节打磨：原文 / 译文之间的分隔线、行头按钮悬停态、细滚动条、选中色；三端网页台副本已对齐",
                 "「直接编辑」不再跳浏览器：拉一份本地镜像直接在应用内改，改动按句自动写回对端（与 PC 端同一套思路）",
                 "主页新增「其它设备」卡片：自动发现局域网 / 远程服务器并展示对端文档，可直接编辑或同步到本地",
                 "远程镜像文档禁用切分方式切换，删除镜像自动清绑定；翻译页副标题标明「编辑写回对端」",
